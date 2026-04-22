@@ -108,7 +108,7 @@ function MoinSuggestion({ matrix, currency }: { matrix: MatrixRow[]; currency: s
       diff,
       isWinning: moinAmt >= compAmt,
     }
-  }).filter(Boolean) as NonNullable<ReturnType<typeof matrix[0]["quotes"][""]> & object>[]
+  }).filter(Boolean) as any[]
 
   if (!rows.length) return null
 
