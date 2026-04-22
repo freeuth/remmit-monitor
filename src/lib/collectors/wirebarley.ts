@@ -82,8 +82,24 @@ export async function collectWirebarleyBatch(
       } catch {}
     })
 
-    await page.goto("https://www.wirebarley.com/ko", { waitUntil: "networkidle2", timeout: 25000 })
-    await sleep(2000)
+    await page.goto("https://www.wirebarley.com/ko", { waitUntil: "networkidle2", timeout: 30000 })
+    await sleep(3000)
+
+    // Debug: capture page state
+    const pageInfo = await page.evaluate(() => ({
+      title: document.title,
+      url: location.href,
+      inputCount: document.querySelectorAll("input").length,
+      bodySnippet: document.body.innerText.slice(0, 200),
+    }))
+    debugResponses.push(`PAGE: title="${pageInfo.title}" inputs=${pageInfo.inputCount} body="${pageInfo.bodySnippet.replace(/\n/g, " ").slice(0, 100)}"`)
+
+    // Try dismissing any cookie/popup overlays
+    await page.evaluate(() => {
+      document.querySelectorAll("[class*='modal'],[class*='popup'],[class*='overlay'],[class*='cookie'],[class*='banner']")
+        .forEach(el => (el as HTMLElement).style.display = "none")
+    })
+    await sleep(500)
 
     // Change currency once if needed
     if (currency !== "USD") {
@@ -109,15 +125,21 @@ export async function collectWirebarleyBatch(
       } catch {}
     }
 
-    // Find the send amount input
+    // Find the send amount input — try multiple strategies
     const allInputs = await page.$$("input")
     let sendInput = null
     for (const input of allInputs) {
-      const visible = await input.evaluate(el => {
+      const info = await input.evaluate(el => {
         const s = window.getComputedStyle(el)
-        return s.display !== "none" && s.visibility !== "hidden" && el.offsetWidth > 0
+        return {
+          visible: s.display !== "none" && s.visibility !== "hidden" && el.offsetWidth > 0,
+          type: el.type,
+          placeholder: el.placeholder,
+          value: el.value,
+        }
       })
-      if (visible) { sendInput = input; break }
+      debugResponses.push(`INPUT: visible=${info.visible} type=${info.type} ph="${info.placeholder}" val="${info.value}"`)
+      if (info.visible && info.type !== "hidden") { sendInput = input; break }
     }
 
     const results: QuoteResult[] = []
