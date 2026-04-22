@@ -98,23 +98,46 @@ export async function collectWirebarleyBatch(
 
     await sleep(2000)
 
-    // Click 시작하기 / Get started to enter calculator
-    const started = await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll("a, button")).find(
+    // Click 시작하기 and wait for navigation
+    const btnHref = await page.evaluate(() => {
+      const el = Array.from(document.querySelectorAll("a, button")).find(
         el => el.textContent?.trim() === "시작하기" || el.textContent?.trim() === "Get started"
-      ) as HTMLElement | undefined
-      if (btn) { btn.click(); return true }
-      return false
+      )
+      if (!el) return null
+      return (el as HTMLAnchorElement).href ?? null
     })
-    if (started) await sleep(2500)
+    debugResponses.push(`BTN_HREF:${btnHref}`)
 
-    // Poll for calculator inputs (up to 8s)
+    if (btnHref && btnHref !== page.url()) {
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {}),
+        page.goto(btnHref, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {}),
+      ])
+      await sleep(2000)
+    } else {
+      await page.evaluate(() => {
+        const el = Array.from(document.querySelectorAll("a, button")).find(
+          el => el.textContent?.trim() === "시작하기"
+        ) as HTMLElement | undefined
+        el?.click()
+      })
+      await sleep(2500)
+    }
+
+    // Capture state after navigation
+    const afterNav = await page.evaluate(() => ({
+      url: location.href,
+      inputs: document.querySelectorAll("input").length,
+      title: document.title,
+    }))
+    debugResponses.push(`AFTER_NAV: url=${afterNav.url} inputs=${afterNav.inputs} title=${afterNav.title}`)
+
+    // Poll for inputs if not yet visible
     for (let i = 0; i < 16; i++) {
       const count = await page.evaluate(() => document.querySelectorAll("input").length)
       if (count > 0) break
       await sleep(500)
     }
-    await sleep(500)
 
     // Debug: capture page state
     const pageInfo = await page.evaluate(() => ({
