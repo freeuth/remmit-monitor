@@ -1,5 +1,7 @@
 import { QuoteResult } from "./types"
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
 const CHROMIUM_REMOTE_URL =
   "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
 
@@ -32,7 +34,7 @@ export async function collectWirebarley(sendAmountKrw: number, toCurrency: strin
 
     const page = await browser.newPage()
     await page.goto("https://www.wirebarley.com/ko", { waitUntil: "domcontentloaded" })
-    await page.waitForTimeout(2000)
+    await sleep(2000)
 
     // Set send amount
     const inputs = await page.$$("input")
@@ -40,7 +42,7 @@ export async function collectWirebarley(sendAmountKrw: number, toCurrency: strin
       await inputs[0].click({ clickCount: 3 })
       await inputs[0].type(String(sendAmountKrw))
     }
-    await page.waitForTimeout(800)
+    await sleep(800)
 
     // Change currency if needed
     if (currency !== "USD") {
@@ -49,7 +51,7 @@ export async function collectWirebarley(sendAmountKrw: number, toCurrency: strin
         const text = await btn.evaluate(el => el.textContent ?? "")
         if (/USD|JPY|EUR|PHP/.test(text)) {
           await btn.click()
-          await page.waitForTimeout(500)
+          await sleep(500)
           break
         }
       }
@@ -59,7 +61,7 @@ export async function collectWirebarley(sendAmountKrw: number, toCurrency: strin
         ) as HTMLElement | undefined
         el?.click()
       }, currency)
-      await page.waitForTimeout(1200)
+      await sleep(1200)
     }
 
     const snapshot = await page.evaluate(() => {
