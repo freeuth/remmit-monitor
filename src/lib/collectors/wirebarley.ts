@@ -175,17 +175,60 @@ export async function collectWirebarleyBatch(
 
     const results: QuoteResult[] = []
 
+    // Find and click send amount field (contenteditable or custom element near "보내는 금액")
+    const sendAmountClicked = await page.evaluate(() => {
+      // Find the label element
+      const label = Array.from(document.querySelectorAll("*")).find(
+        (el: any) => el.innerText?.trim() === "보내는 금액" && el.offsetWidth > 0
+      ) as HTMLElement | undefined
+      if (!label) return false
+
+      // Walk up and find nearby interactive/numeric child element
+      const parent = label.closest("[class]") ?? label.parentElement ?? label
+      const searchRoot = parent.parentElement ?? parent
+
+      // Look for contenteditable or any numeric element nearby
+      const target = (
+        searchRoot.querySelector("[contenteditable]") ??
+        searchRoot.querySelector("[role='spinbutton']") ??
+        searchRoot.querySelector("[role='textbox']") ??
+        Array.from(searchRoot.querySelectorAll("*")).find((el: any) => {
+          const txt = el.innerText?.trim().replace(/,/g, "")
+          return /^\d+$/.test(txt) && Number(txt) > 1000 && el.children.length === 0
+        })
+      ) as HTMLElement | undefined
+
+      if (target) {
+        target.click()
+        target.focus()
+        return true
+      }
+      // Fallback: click near the label
+      label.click()
+      return true
+    })
+
+    if (!sendAmountClicked) {
+      // Last resort: click at the center of the page and navigate by tab
+      await page.mouse.click(640, 400)
+    }
+    await sleep(500)
+
     for (const amount of sendAmounts) {
       state.last = null
 
-      // Try to change the send amount
-      const changed = await setSendAmount(page, amount)
-      if (changed) {
-        // Trigger keyboard events to force recalculation
-        await page.keyboard.press("Tab")
-        await page.keyboard.press("Enter")
-        await sleep(2000)
-      }
+      // Select all and type new amount using keyboard
+      await page.keyboard.down("Meta")
+      await page.keyboard.press("a")
+      await page.keyboard.up("Meta")
+      await sleep(100)
+      await page.keyboard.down("Control")
+      await page.keyboard.press("a")
+      await page.keyboard.up("Control")
+      await sleep(100)
+      await page.keyboard.type(String(amount), { delay: 30 })
+      await page.keyboard.press("Tab")
+      await sleep(2500)
 
       // Wait up to 4s for API response
       for (let i = 0; i < 8; i++) {
@@ -194,6 +237,14 @@ export async function collectWirebarleyBatch(
       }
 
       const captured = state.last as Intercepted | null
+      const body = await page.evaluate(() => document.body.innerText)
+
+      // Also try to parse rate from "1 USD = 1,492.32 KRW" pattern for exchange rate
+      let exchangeRate = captured?.exchangeRate
+      if (!exchangeRate) {
+        const rateMatch = body.match(/1\s+[A-Z]{3}\s*=\s*([\d,]+\.?\d*)\s*KRW/)
+        if (rateMatch) exchangeRate = Number(rateMatch[1].replace(/,/g, ""))
+      }
 
       if (captured && captured.recipientAmount > 0) {
         results.push({
@@ -201,19 +252,25 @@ export async function collectWirebarleyBatch(
           sendAmountKrw: amount,
           recipientAmount: captured.recipientAmount,
           recipientCurrency: currency,
-          exchangeRate: captured.exchangeRate,
+          exchangeRate,
           feeKrw: captured.feeKrw != null ? Math.round(captured.feeKrw) : undefined,
         })
       } else {
-        // Fallback: parse receive amount from page body text
-        const body = await page.evaluate(() => document.body.innerText)
-        const recv = parseReceiveFromBody(body, currency)
+        // Parse from body: look for "받는 금액\n\n{number}" pattern
+        const recvMatch = body.match(/받는\s*금액\s*\n[\s\S]{0,20}?\n([\d,]+\.?\d+)/)
+        const recv = recvMatch ? Number(recvMatch[1].replace(/,/g, "")) : 0
+        const fee = (() => {
+          const m = body.match(/수수료\s*\n\s*([\d,]+)\s*KRW/)
+          return m ? Number(m[1].replace(/,/g, "")) : undefined
+        })()
         results.push({
           service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
           sendAmountKrw: amount,
           recipientAmount: recv,
           recipientCurrency: currency,
-          rawSnapshot: body.slice(0, 300),
+          exchangeRate,
+          feeKrw: fee,
+          rawSnapshot: body.slice(0, 400),
           error: recv === 0 ? "Could not read recipient amount" : undefined,
         })
       }
