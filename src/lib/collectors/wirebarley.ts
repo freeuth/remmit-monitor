@@ -10,7 +10,8 @@ const SUPPORTED: Record<string, true> = {
   SEK: true, NOK: true, DKK: true, AED: true,
 }
 
-// Collect all amounts in one browser session (much faster)
+type Intercepted = { recipientAmount: number; exchangeRate?: number; feeKrw?: number }
+
 export async function collectWirebarleyBatch(
   sendAmounts: number[],
   toCurrency: string
@@ -42,11 +43,10 @@ export async function collectWirebarleyBatch(
     })
 
     const page = await browser.newPage()
+    const debugResponses: string[] = []
+    let lastIntercepted: Intercepted | null = null
 
-    // Collect intercepted quotes keyed by amount
-    const intercepted = new Map<number, { recipientAmount: number; exchangeRate?: number; feeKrw?: number }>()
-    let lastIntercepted: typeof intercepted extends Map<any, infer V> ? V : never = null as any
-
+    // Intercept ALL JSON responses from wirebarley domain
     page.on("response", async (response) => {
       const url = response.url()
       if (!url.includes("wirebarley")) return
@@ -54,20 +54,40 @@ export async function collectWirebarleyBatch(
         const ct = response.headers()["content-type"] ?? ""
         if (!ct.includes("json")) return
         const json = await response.json()
-        const d = json?.data ?? json?.result ?? json
-        const recv = d?.receiveAmt ?? d?.receivingAmount ?? d?.toAmount ?? d?.amount
-        if (recv != null && Number(recv) > 0) {
-          lastIntercepted = {
-            recipientAmount: Number(recv),
-            exchangeRate: d?.exchangeRate ?? d?.rate,
-            feeKrw: d?.fee ?? d?.feeAmount,
+
+        // Try multiple response shapes
+        const candidates = [
+          json,
+          json?.data,
+          json?.result,
+          json?.response,
+          json?.payload,
+          ...(Array.isArray(json?.data) ? json.data : []),
+        ]
+
+        for (const d of candidates) {
+          if (!d || typeof d !== "object") continue
+          const recv =
+            d.receiveAmt ?? d.receivingAmount ?? d.toAmount ??
+            d.receiveAmount ?? d.targetAmount ?? d.destinationAmount?.amount ??
+            d.amount ?? d.receive ?? d.recipientAmount
+          if (recv != null && Number(recv) > 0) {
+            lastIntercepted = {
+              recipientAmount: Number(recv),
+              exchangeRate: d.exchangeRate ?? d.rate ?? d.fxRate ?? d.baseRate,
+              feeKrw: d.fee ?? d.feeAmount ?? d.transferFee,
+            }
+            debugResponses.push(`${url} → recv=${recv}`)
+            return
           }
         }
+        // Log any wirebarley JSON for debugging
+        debugResponses.push(`${url} → keys=${Object.keys(json).join(",")}`)
       } catch {}
     })
 
     await page.goto("https://www.wirebarley.com/ko", { waitUntil: "networkidle2", timeout: 25000 })
-    await sleep(1500)
+    await sleep(2000)
 
     // Change currency once if needed
     if (currency !== "USD") {
@@ -77,7 +97,7 @@ export async function collectWirebarleyBatch(
           const txt = await btn.evaluate(el => el.textContent?.trim() ?? "")
           if (/^[A-Z]{3}$/.test(txt)) {
             await btn.click()
-            await sleep(600)
+            await sleep(800)
             break
           }
         }
@@ -93,7 +113,7 @@ export async function collectWirebarleyBatch(
       } catch {}
     }
 
-    // Find the send amount input once
+    // Find the send amount input
     const allInputs = await page.$$("input")
     let sendInput = null
     for (const input of allInputs) {
@@ -104,40 +124,25 @@ export async function collectWirebarleyBatch(
       if (visible) { sendInput = input; break }
     }
 
-    // Loop through amounts — reuse the same page
     const results: QuoteResult[] = []
+
     for (const amount of sendAmounts) {
-      lastIntercepted = null as any
+      lastIntercepted = null
 
       if (sendInput) {
         await sendInput.click({ clickCount: 3 })
-        await sendInput.type(String(amount), { delay: 30 })
+        await sendInput.type(String(amount), { delay: 50 })
+        // Also try pressing Enter/Tab to trigger recalculation
+        await sendInput.press("Tab")
       }
 
-      // Wait up to 5s for API response
-      for (let i = 0; i < 10; i++) {
+      // Wait up to 6s for API response
+      for (let i = 0; i < 12; i++) {
         if (lastIntercepted) break
         await sleep(500)
       }
 
-      // Fallback: read from DOM
-      if (!lastIntercepted) {
-        const domRecv = await page.evaluate(() => {
-          const inputs = Array.from(document.querySelectorAll("input")) as HTMLInputElement[]
-          const visible = inputs.filter(el => {
-            const s = window.getComputedStyle(el)
-            return s.display !== "none" && s.visibility !== "hidden" && el.offsetWidth > 0
-          })
-          return visible[1]?.value ?? visible[0]?.value ?? ""
-        })
-        const recv = Number(domRecv.replace(/,/g, "")) || 0
-        results.push({
-          service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
-          sendAmountKrw: amount, recipientAmount: recv, recipientCurrency: currency,
-          error: recv === 0 ? "Could not read recipient amount" : undefined,
-        })
-      } else {
-        intercepted.set(amount, lastIntercepted)
+      if (lastIntercepted) {
         results.push({
           service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
           sendAmountKrw: amount,
@@ -145,6 +150,27 @@ export async function collectWirebarleyBatch(
           recipientCurrency: currency,
           exchangeRate: lastIntercepted.exchangeRate,
           feeKrw: lastIntercepted.feeKrw != null ? Math.round(lastIntercepted.feeKrw) : undefined,
+          rawSnapshot: debugResponses.slice(-3).join(" | "),
+        })
+      } else {
+        // DOM fallback
+        const domRecv = await page.evaluate(() => {
+          const inputs = Array.from(document.querySelectorAll("input")) as HTMLInputElement[]
+          const visible = inputs.filter(el => {
+            const s = window.getComputedStyle(el)
+            return s.display !== "none" && s.visibility !== "hidden" && el.offsetWidth > 0
+          })
+          return visible.map(el => el.value).join("|")
+        })
+        const nums = domRecv.split("|").map(v => Number(v.replace(/,/g, ""))).filter(n => n > 0 && n < 1_000_000)
+        const recv = nums[1] ?? nums[0] ?? 0
+        results.push({
+          service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
+          sendAmountKrw: amount,
+          recipientAmount: recv,
+          recipientCurrency: currency,
+          rawSnapshot: `debug: ${debugResponses.slice(-5).join(" | ")} | dom: ${domRecv}`,
+          error: recv === 0 ? "Could not read recipient amount" : undefined,
         })
       }
     }
@@ -160,7 +186,6 @@ export async function collectWirebarleyBatch(
   }
 }
 
-// Single-amount wrapper (kept for compatibility)
 export async function collectWirebarley(sendAmountKrw: number, toCurrency: string): Promise<QuoteResult> {
   const results = await collectWirebarleyBatch([sendAmountKrw], toCurrency)
   return results[0]
