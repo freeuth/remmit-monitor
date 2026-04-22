@@ -94,7 +94,7 @@ export default function Home() {
           <ManualInput onSaved={refresh} />
         </div>
         <div className="lg:col-span-2">
-          <ComparisonMatrix matrix={latest?.matrix ?? []} currency={currency} />
+          <ComparisonMatrix matrix={latest?.matrix ?? []} currency={currency} session={latest?.session} />
         </div>
       </div>
 

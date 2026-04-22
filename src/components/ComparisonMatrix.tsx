@@ -1,5 +1,5 @@
 "use client"
-import { MatrixRow, Quote, SERVICE_COLORS, SERVICE_LABELS, SERVICES } from "@/lib/api"
+import { MatrixRow, Quote, Session, SERVICE_COLORS, SERVICE_LABELS, SERVICES } from "@/lib/api"
 
 const JPY_LIKE = ["JPY", "VND", "IDR", "KHR", "MMK"]
 
@@ -180,7 +180,7 @@ function MoinSuggestion({ matrix, currency }: { matrix: MatrixRow[]; currency: s
   )
 }
 
-export default function ComparisonMatrix({ matrix, currency }: { matrix: MatrixRow[]; currency: string }) {
+export default function ComparisonMatrix({ matrix, currency, session }: { matrix: MatrixRow[]; currency: string; session?: Session | null }) {
   if (!matrix.length) return (
     <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
       아직 수집된 데이터가 없습니다. 견적 수집을 시작해주세요.
@@ -197,7 +197,14 @@ export default function ComparisonMatrix({ matrix, currency }: { matrix: MatrixR
             수취 금액 비교
             <span className="text-gray-400 font-normal text-sm ml-1">({currency})</span>
           </h2>
-          <span className="text-xs text-gray-400">● 최고 수취  ▲▼ 모인 대비</span>
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="text-xs text-gray-400">● 최고 수취  ▲▼ 모인 대비</span>
+            {session && (
+              <span className="text-[11px] text-gray-400">
+                수집: {new Date(session.triggeredAt).toLocaleString("ko-KR")}
+              </span>
+            )}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
