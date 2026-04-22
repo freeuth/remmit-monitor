@@ -38,9 +38,14 @@ export async function collectMoin(sendAmountKrw: number, toCurrency: string): Pr
     const data = await res.json()
     const raw = JSON.stringify(data)
 
-    const received = data.receivedAmount ?? data.receiveAmount ?? data.targetAmount
-    const rate = data.exchangeRate ?? data.rate
-    const fee = data.fee ?? data.feeAmount ?? data.sendFee
+    // New API shape: quoteV2.destinationAmount.amount
+    const v2 = data.quoteV2
+    const received = v2?.destinationAmount?.amount
+      ?? data.receivedAmount ?? data.receiveAmount ?? data.targetAmount
+    const rate = v2?.quoteExchangeRate?.rate
+      ?? data.exchangeRate ?? data.rate
+    const fee = v2?.feeAmount?.amount
+      ?? data.fee ?? data.feeAmount ?? data.sendFee
 
     if (received == null) {
       return { service: "MOIN", fromCurrency: "KRW", toCurrency: currency,
