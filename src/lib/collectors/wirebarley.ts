@@ -49,7 +49,6 @@ export async function collectWirebarleyBatch(
 
     page.on("response", async (response) => {
       const url = response.url()
-      if (!url.includes("wirebarley")) return
       try {
         const ct = response.headers()["content-type"] ?? ""
         if (!ct.includes("json")) return
@@ -66,17 +65,20 @@ export async function collectWirebarleyBatch(
             d.receiveAmt ?? d.receivingAmount ?? d.toAmount ??
             d.receiveAmount ?? d.targetAmount ?? d.destinationAmount?.amount ??
             d.amount ?? d.receive ?? d.recipientAmount
-          if (recv != null && Number(recv) > 0) {
+          if (recv != null && Number(recv) > 0 && Number(recv) < 1_000_000) {
             state.last = {
               recipientAmount: Number(recv),
               exchangeRate: d.exchangeRate ?? d.rate ?? d.fxRate ?? d.baseRate,
               feeKrw: d.fee ?? d.feeAmount ?? d.transferFee,
             }
-            debugResponses.push(`${url} → recv=${recv}`)
+            debugResponses.push(`HIT:${url} → recv=${recv}`)
             return
           }
         }
-        debugResponses.push(`${url} → keys=${Object.keys(json).join(",")}`)
+        // Log all JSON URLs for discovery
+        if (debugResponses.length < 20) {
+          debugResponses.push(`${new URL(url).hostname}${new URL(url).pathname}`)
+        }
       } catch {}
     })
 
