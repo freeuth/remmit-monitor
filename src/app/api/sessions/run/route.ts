@@ -5,7 +5,7 @@ import { collectWirebarleyBatch } from "@/lib/collectors/wirebarley"
 import type { QuoteResult } from "@/lib/collectors"
 
 const DEFAULT_AMOUNTS = [500_000, 1_000_000, 3_000_000, 5_000_000]
-const SUPPORTED_CURRENCIES = ["USD", "JPY", "EUR", "PHP", "VND", "THB", "CNY", "AUD", "GBP"]
+import { CURRENCIES as SUPPORTED_CURRENCIES_LIST } from "@/lib/api"
 
 type CollectorFn = (amount: number, currency: string) => Promise<QuoteResult>
 const FAST_COLLECTORS: Record<string, CollectorFn> = {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   ]
   const triggeredBy: string = body.triggered_by ?? "manual"
 
-  if (!SUPPORTED_CURRENCIES.includes(toCurrency)) {
+  if (!SUPPORTED_CURRENCIES_LIST.includes(toCurrency)) {
     return NextResponse.json({ error: `Unsupported currency: ${toCurrency}` }, { status: 400 })
   }
 
