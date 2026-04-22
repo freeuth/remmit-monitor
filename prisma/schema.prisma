@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ComparisonSession {
+  id           Int      @id @default(autoincrement())
+  triggeredAt  DateTime @default(now())
+  triggeredBy  String   @default("manual")
+  toCurrency   String
+  status       String   @default("running") // running|complete|partial|failed
+  quotesCount  Int      @default(0)
+  quotes       Quote[]
+}
+
+model Quote {
+  id               Int               @id @default(autoincrement())
+  session          ComparisonSession @relation(fields: [sessionId], references: [id])
+  sessionId        Int
+  collectedAt      DateTime          @default(now())
+  service          String            // MOIN|WIREBARLEY|HANPASS|UTRANSFER|SENTBE
+  fromCurrency     String            @default("KRW")
+  toCurrency       String
+  sendAmountKrw    Int
+  exchangeRate     Float?
+  feeKrw           Int?
+  recipientAmount  Float
+  recipientCurrency String
+  rawSnapshot      String?
+  notes            String?
+}
