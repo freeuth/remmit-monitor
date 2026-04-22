@@ -39,7 +39,7 @@ export async function collectWirebarleyBatch(
   let browser
   try {
     browser = await puppeteer.connect({
-      browserWSEndpoint: `wss://production-sfo.browserless.io?token=${apiKey}&timeout=55000`,
+      browserWSEndpoint: `wss://production-sfo.browserless.io?token=${apiKey}&timeout=55000&stealth=true`,
     })
 
     const page = await browser.newPage()
@@ -48,6 +48,13 @@ export async function collectWirebarleyBatch(
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     })
     await page.setViewport({ width: 1280, height: 800 })
+    // Override geolocation to Seoul
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, "language", { get: () => "ko-KR" })
+      Object.defineProperty(navigator, "languages", { get: () => ["ko-KR", "ko"] })
+    })
+    // Set timezone cookie hint
+    await page.setCookie({ name: "lang", value: "ko", domain: ".wirebarley.com" })
     const debugResponses: string[] = []
     // Use object wrapper to avoid TypeScript closure narrowing issue
     const state = { last: null as Intercepted | null }
