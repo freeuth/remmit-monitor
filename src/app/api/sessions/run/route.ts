@@ -38,16 +38,27 @@ export async function POST(req: NextRequest) {
     data: { toCurrency, triggeredBy, status: "running" },
   })
 
-  // Run all (amount × service) combos at once — much faster than sequential per amount
   const fastServices = requestedServices.filter(s => FAST_COLLECTORS[s])
   const slowServices = requestedServices.filter(s => SLOW_COLLECTORS[s])
 
-  const allTasks = sendAmounts.flatMap(amount => [
-    ...fastServices.map(s => FAST_COLLECTORS[s](amount, toCurrency)),
-    ...slowServices.map(s => SLOW_COLLECTORS[s](amount, toCurrency)),
-  ])
+  // Fast collectors: all amounts in parallel
+  const fastTasks = sendAmounts.flatMap(amount =>
+    fastServices.map(s => FAST_COLLECTORS[s](amount, toCurrency))
+  )
 
-  const results = await Promise.allSettled(allTasks)
+  // Slow collectors (WireBarley): sequential per amount to avoid Browserless rate limit
+  const slowResults: PromiseSettledResult<QuoteResult>[] = []
+  for (const amount of sendAmounts) {
+    for (const s of slowServices) {
+      const r = await Promise.allSettled([SLOW_COLLECTORS[s](amount, toCurrency)])
+      slowResults.push(r[0])
+    }
+  }
+
+  const allTasks = [...fastTasks]
+  const fastResults = await Promise.allSettled(fastTasks)
+  const results = [...fastResults, ...slowResults]
+  void allTasks // suppress unused warning
 
   let total = 0
   let failed = 0
@@ -77,7 +88,7 @@ export async function POST(req: NextRequest) {
   const finalSession = await prisma.comparisonSession.update({
     where: { id: session.id },
     data: {
-      status: failed === allTasks.length ? "failed" : failed > 0 ? "partial" : "complete",
+      status: failed === results.length ? "failed" : failed > 0 ? "partial" : "complete",
       quotesCount: total,
     },
   })
