@@ -2,9 +2,6 @@ import { QuoteResult } from "./types"
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-const CHROMIUM_REMOTE_URL =
-  "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
-
 const SUPPORTED: Record<string, true> = {
   USD: true, JPY: true, EUR: true, PHP: true,
   VND: true, THB: true, CNY: true, AUD: true,
@@ -20,20 +17,23 @@ export async function collectWirebarley(sendAmountKrw: number, toCurrency: strin
       error: `Unsupported currency: ${currency}` }
   }
 
-  const chromium = (await import("@sparticuz/chromium-min")).default
+  const apiKey = process.env.BROWSERLESS_API_KEY
+  if (!apiKey) {
+    return { service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
+      sendAmountKrw, recipientAmount: 0, recipientCurrency: currency,
+      error: "BROWSERLESS_API_KEY not set" }
+  }
+
   const puppeteer = (await import("puppeteer-core")).default
 
   let browser
   try {
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(CHROMIUM_REMOTE_URL),
-      headless: true,
+    browser = await puppeteer.connect({
+      browserWSEndpoint: `wss://production-sfo.browserless.io?token=${apiKey}&timeout=55000`,
     })
 
     const page = await browser.newPage()
-    await page.goto("https://www.wirebarley.com/ko", { waitUntil: "domcontentloaded" })
+    await page.goto("https://www.wirebarley.com/ko", { waitUntil: "domcontentloaded", timeout: 20000 })
     await sleep(2000)
 
     // Set send amount

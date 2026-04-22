@@ -15,7 +15,6 @@
     "react-dom": "18.3.1",
     "@prisma/client": "5.17.0",
     "@vercel/functions": "3.4.4",
-    "@sparticuz/chromium-min": "131.0.1",
     "puppeteer-core": "23.9.0",
     "recharts": "2.12.7",
     "date-fns": "3.6.0"

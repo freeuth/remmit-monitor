@@ -5,7 +5,6 @@ const nextConfig = {
     serverComponentsExternalPackages: [
       "@prisma/client",
       "puppeteer-core",
-      "@sparticuz/chromium-min",
     ],
   },
 }
