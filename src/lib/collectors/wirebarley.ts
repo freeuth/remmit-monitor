@@ -87,17 +87,15 @@ export async function collectWirebarleyBatch(
       } catch {}
     })
 
-    // Try calculator page directly
-    await page.goto("https://www.wirebarley.com/ko/transfer/send", { waitUntil: "networkidle2", timeout: 30000 })
-      .catch(() => page.goto("https://www.wirebarley.com/ko", { waitUntil: "networkidle2", timeout: 25000 }))
-    await sleep(3000)
+    await page.goto("https://www.wirebarley.com/ko", { waitUntil: "domcontentloaded", timeout: 25000 })
 
-    // If still no inputs, try clicking calculator entry button
-    const inputCountBefore = await page.evaluate(() => document.querySelectorAll("input").length)
-    if (inputCountBefore === 0) {
-      const entryBtn = await page.$("a[href*='transfer'], button[class*='start'], a[class*='start'], [class*='calculator']")
-      if (entryBtn) { await entryBtn.click(); await sleep(2000) }
+    // Poll for calculator inputs to appear (up to 10s)
+    for (let i = 0; i < 20; i++) {
+      const count = await page.evaluate(() => document.querySelectorAll("input").length)
+      if (count > 0) break
+      await sleep(500)
     }
+    await sleep(1000)
 
     // Debug: capture page state
     const pageInfo = await page.evaluate(() => ({
