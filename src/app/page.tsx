@@ -22,8 +22,8 @@ export default function Home() {
   const [totalExpected, setTotalExpected] = useState(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const refresh = useCallback(async () => {
-    const [s, l] = await Promise.all([getSessions(), getLatestComparison(currency)])
+  const refresh = useCallback(async (overrideCurrency?: string) => {
+    const [s, l] = await Promise.all([getSessions(), getLatestComparison(overrideCurrency ?? currency)])
     setSessions(s)
     setLatest(l)
   }, [currency])
@@ -42,6 +42,7 @@ export default function Home() {
         setRunningId(null)
         setTotalExpected(0)
         setCurrency(collectedCurrency)
+        refresh(collectedCurrency)
       }
     }, 2000)
   }
