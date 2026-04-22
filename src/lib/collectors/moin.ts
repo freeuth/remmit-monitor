@@ -4,7 +4,14 @@ const CURRENCY_TO_COUNTRY: Record<string, string> = {
   USD: "US", JPY: "JP", EUR: "DE", PHP: "PH",
   VND: "VN", THB: "TH", CNY: "CN", AUD: "AU",
   GBP: "GB", CAD: "CA", SGD: "SG", HKD: "HK",
-  MYR: "MY", IDR: "ID", INR: "IN",
+  MYR: "MY", IDR: "ID", INR: "IN", NZD: "NZ",
+  CHF: "CH", SEK: "SE", NOK: "NO", DKK: "DK",
+  NPR: "NP", BDT: "BD", LKR: "LK", PKR: "PK",
+  MMK: "MM", KHR: "KH", MNT: "MN", TWD: "TW",
+  AED: "AE", SAR: "SA", QAR: "QA", KWD: "KW",
+  BHD: "BH", OMR: "OM", MXN: "MX", BRL: "BR",
+  PLN: "PL", CZK: "CZ", HUF: "HU", RUB: "RU",
+  ZAR: "ZA", TRY: "TR", EGP: "EG",
 }
 
 export async function collectMoin(sendAmountKrw: number, toCurrency: string): Promise<QuoteResult> {

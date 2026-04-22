@@ -6,6 +6,8 @@ const SUPPORTED: Record<string, true> = {
   USD: true, JPY: true, EUR: true, PHP: true,
   VND: true, THB: true, CNY: true, AUD: true,
   GBP: true, CAD: true, SGD: true, MYR: true, IDR: true,
+  HKD: true, NZD: true, INR: true, CHF: true,
+  SEK: true, NOK: true, DKK: true, AED: true,
 }
 
 // Collect all amounts in one browser session (much faster)

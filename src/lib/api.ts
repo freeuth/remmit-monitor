@@ -25,7 +25,19 @@ export const SERVICE_COLORS: Record<string, string> = {
 }
 export const SERVICES = ["MOIN", "WIREBARLEY", "HANPASS", "UTRANSFER", "SENTBE"]
 export const AMOUNTS = [500_000, 1_000_000, 3_000_000, 5_000_000]
-export const CURRENCIES = ["USD", "JPY", "EUR", "PHP", "VND", "THB", "CNY", "AUD", "GBP"]
+
+export type CurrencyGroup = { label: string; currencies: string[] }
+export const CURRENCY_GROUPS: CurrencyGroup[] = [
+  { label: "주요 통화", currencies: ["USD", "EUR", "JPY", "GBP", "AUD", "CAD", "NZD", "CHF"] },
+  { label: "동남아시아", currencies: ["PHP", "VND", "THB", "SGD", "MYR", "IDR", "MMK", "KHR"] },
+  { label: "동아시아", currencies: ["CNY", "HKD", "TWD", "MNT"] },
+  { label: "남아시아", currencies: ["INR", "BDT", "NPR", "LKR", "PKR"] },
+  { label: "유럽", currencies: ["SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON"] },
+  { label: "아메리카", currencies: ["MXN", "BRL", "CLP", "PEN"] },
+  { label: "중동·아프리카", currencies: ["AED", "SAR", "QAR", "KWD", "BHD", "OMR", "EGP"] },
+  { label: "기타", currencies: ["RUB", "ZAR", "TRY"] },
+]
+export const CURRENCIES = CURRENCY_GROUPS.flatMap(g => g.currencies)
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, init)

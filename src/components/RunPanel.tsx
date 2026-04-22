@@ -1,10 +1,10 @@
 "use client"
 import { useState } from "react"
-import { AMOUNTS, CURRENCIES, SERVICE_LABELS, SERVICES, runSession } from "@/lib/api"
+import { AMOUNTS, CURRENCY_GROUPS, SERVICE_LABELS, SERVICES, runSession } from "@/lib/api"
 
 export default function RunPanel({ onStarted }: { onStarted: (id: number, total: number) => void }) {
   const [currency, setCurrency] = useState("USD")
-  const [services, setServices] = useState<string[]>(SERVICES)
+  const [services, setServices] = useState<string[]>(SERVICES.filter(s => s !== "SENTBE"))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -17,8 +17,7 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number, total:
     setError(null)
     try {
       const res = await runSession({ to_currency: currency, services })
-      const total = (res as any).total ?? services.length * AMOUNTS.length
-      onStarted(res.session_id, total)
+      onStarted(res.session_id, res.total ?? services.length * AMOUNTS.length)
     } catch (e: any) {
       setError(e.message ?? "알 수 없는 오류")
     } finally {
@@ -30,13 +29,17 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number, total:
     <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
       <h2 className="font-semibold text-gray-800">견적 수집</h2>
       <div className="flex flex-wrap gap-3 items-center">
-        <label className="text-sm text-gray-600">통화</label>
+        <label className="text-sm text-gray-600 shrink-0">통화</label>
         <select
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={currency}
           onChange={e => setCurrency(e.target.value)}
         >
-          {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+          {CURRENCY_GROUPS.map(g => (
+            <optgroup key={g.label} label={g.label}>
+              {g.currencies.map(c => <option key={c} value={c}>{c}</option>)}
+            </optgroup>
+          ))}
         </select>
       </div>
       <div className="flex flex-wrap gap-2">

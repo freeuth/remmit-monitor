@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
+import { CURRENCIES } from "@/lib/api"
 
 export async function GET() {
-  return NextResponse.json(["USD", "JPY", "EUR", "PHP", "VND", "THB", "CNY", "AUD", "GBP"])
+  return NextResponse.json(CURRENCIES)
 }
