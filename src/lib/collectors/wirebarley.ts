@@ -43,6 +43,11 @@ export async function collectWirebarleyBatch(
     })
 
     const page = await browser.newPage()
+    await page.setExtraHTTPHeaders({
+      "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    })
+    await page.setViewport({ width: 1280, height: 800 })
     const debugResponses: string[] = []
     // Use object wrapper to avoid TypeScript closure narrowing issue
     const state = { last: null as Intercepted | null }
@@ -82,8 +87,17 @@ export async function collectWirebarleyBatch(
       } catch {}
     })
 
-    await page.goto("https://www.wirebarley.com/ko", { waitUntil: "networkidle2", timeout: 30000 })
+    // Try calculator page directly
+    await page.goto("https://www.wirebarley.com/ko/transfer/send", { waitUntil: "networkidle2", timeout: 30000 })
+      .catch(() => page.goto("https://www.wirebarley.com/ko", { waitUntil: "networkidle2", timeout: 25000 }))
     await sleep(3000)
+
+    // If still no inputs, try clicking calculator entry button
+    const inputCountBefore = await page.evaluate(() => document.querySelectorAll("input").length)
+    if (inputCountBefore === 0) {
+      const entryBtn = await page.$("a[href*='transfer'], button[class*='start'], a[class*='start'], [class*='calculator']")
+      if (entryBtn) { await entryBtn.click(); await sleep(2000) }
+    }
 
     // Debug: capture page state
     const pageInfo = await page.evaluate(() => ({
