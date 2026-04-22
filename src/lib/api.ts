@@ -34,7 +34,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const runSession = (p: { to_currency: string; services?: string[] }) =>
-  api<{ session_id: number }>("/sessions/run", {
+  api<{ session_id: number; status: string; quotes: number; total: number }>("/sessions/run", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
   })
 

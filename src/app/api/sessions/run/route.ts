@@ -1,23 +1,35 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
-import { collectMoin, collectHanpass, collectUtransfer, collectWirebarley } from "@/lib/collectors"
+import { collectMoin, collectHanpass, collectUtransfer } from "@/lib/collectors"
+import { collectWirebarleyBatch } from "@/lib/collectors/wirebarley"
 import type { QuoteResult } from "@/lib/collectors"
 
 const DEFAULT_AMOUNTS = [500_000, 1_000_000, 3_000_000, 5_000_000]
 const SUPPORTED_CURRENCIES = ["USD", "JPY", "EUR", "PHP", "VND", "THB", "CNY", "AUD", "GBP"]
 
 type CollectorFn = (amount: number, currency: string) => Promise<QuoteResult>
-
-// Fast collectors: direct HTTP API calls (no browser)
 const FAST_COLLECTORS: Record<string, CollectorFn> = {
   MOIN: collectMoin,
   HANPASS: collectHanpass,
   UTRANSFER: collectUtransfer,
 }
 
-// Slow collectors: requires headless browser (run last, best-effort)
-const SLOW_COLLECTORS: Record<string, CollectorFn> = {
-  WIREBARLEY: collectWirebarley,
+async function saveQuote(sessionId: number, q: QuoteResult): Promise<void> {
+  await prisma.quote.create({
+    data: {
+      sessionId,
+      service: q.service,
+      fromCurrency: q.fromCurrency,
+      toCurrency: q.toCurrency,
+      sendAmountKrw: q.sendAmountKrw,
+      recipientAmount: q.recipientAmount,
+      recipientCurrency: q.recipientCurrency,
+      exchangeRate: q.exchangeRate ?? null,
+      feeKrw: q.feeKrw ?? null,
+      rawSnapshot: q.rawSnapshot ?? null,
+      notes: q.error ? `ERROR: ${q.error}` : null,
+    },
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -26,7 +38,7 @@ export async function POST(req: NextRequest) {
   const sendAmounts: number[] = body.send_amounts ?? DEFAULT_AMOUNTS
   const requestedServices: string[] = body.services ?? [
     ...Object.keys(FAST_COLLECTORS),
-    ...Object.keys(SLOW_COLLECTORS),
+    "WIREBARLEY",
   ]
   const triggeredBy: string = body.triggered_by ?? "manual"
 
@@ -34,64 +46,55 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Unsupported currency: ${toCurrency}` }, { status: 400 })
   }
 
+  const fastServices = requestedServices.filter(s => FAST_COLLECTORS[s])
+  const includeWirebarley = requestedServices.includes("WIREBARLEY")
+  const totalExpected = fastServices.length * sendAmounts.length + (includeWirebarley ? sendAmounts.length : 0)
+
   const session = await prisma.comparisonSession.create({
     data: { toCurrency, triggeredBy, status: "running" },
   })
 
-  const fastServices = requestedServices.filter(s => FAST_COLLECTORS[s])
-  const slowServices = requestedServices.filter(s => SLOW_COLLECTORS[s])
-
-  // Fast collectors: all amounts in parallel
-  const fastTasks = sendAmounts.flatMap(amount =>
-    fastServices.map(s => FAST_COLLECTORS[s](amount, toCurrency))
-  )
-
-  // Slow collectors (WireBarley): sequential per amount to avoid Browserless rate limit
-  const slowResults: PromiseSettledResult<QuoteResult>[] = []
-  for (const amount of sendAmounts) {
-    for (const s of slowServices) {
-      const r = await Promise.allSettled([SLOW_COLLECTORS[s](amount, toCurrency)])
-      slowResults.push(r[0])
-    }
-  }
-
-  const allTasks = [...fastTasks]
-  const fastResults = await Promise.allSettled(fastTasks)
-  const results = [...fastResults, ...slowResults]
-  void allTasks // suppress unused warning
-
-  let total = 0
+  let saved = 0
   let failed = 0
 
-  for (const result of results) {
-    if (result.status === "rejected") { failed++; continue }
-    const q = result.value
-    if (q.error) failed++
-    await prisma.quote.create({
-      data: {
-        sessionId: session.id,
-        service: q.service,
-        fromCurrency: q.fromCurrency,
-        toCurrency: q.toCurrency,
-        sendAmountKrw: q.sendAmountKrw,
-        recipientAmount: q.recipientAmount,
-        recipientCurrency: q.recipientCurrency,
-        exchangeRate: q.exchangeRate ?? null,
-        feeKrw: q.feeKrw ?? null,
-        rawSnapshot: q.rawSnapshot ?? null,
-        notes: q.error ? `ERROR: ${q.error}` : null,
-      },
+  const bump = () =>
+    prisma.comparisonSession.update({
+      where: { id: session.id },
+      data: { quotesCount: saved },
     })
-    total++
+
+  // Fast collectors: all in parallel, then save per-amount batch for progress updates
+  for (const amount of sendAmounts) {
+    const results = await Promise.allSettled(
+      fastServices.map(s => FAST_COLLECTORS[s](amount, toCurrency))
+    )
+    for (const r of results) {
+      if (r.status === "rejected") { failed++; continue }
+      if (r.value.error) failed++
+      await saveQuote(session.id, r.value)
+      saved++
+    }
+    await bump()
+  }
+
+  // WireBarley: single browser session for all amounts
+  if (includeWirebarley) {
+    const wbResults = await collectWirebarleyBatch(sendAmounts, toCurrency)
+    for (const q of wbResults) {
+      if (q.error) failed++
+      await saveQuote(session.id, q)
+      saved++
+      await bump()
+    }
   }
 
   const finalSession = await prisma.comparisonSession.update({
     where: { id: session.id },
     data: {
-      status: failed === results.length ? "failed" : failed > 0 ? "partial" : "complete",
-      quotesCount: total,
+      status: failed === totalExpected ? "failed" : failed > 0 ? "partial" : "complete",
+      quotesCount: saved,
     },
   })
 
-  return NextResponse.json({ session_id: session.id, status: finalSession.status, quotes: total })
+  return NextResponse.json({ session_id: session.id, status: finalSession.status, quotes: saved, total: totalExpected })
 }

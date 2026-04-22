@@ -1,8 +1,8 @@
 "use client"
 import { useState } from "react"
-import { CURRENCIES, SERVICE_LABELS, SERVICES, runSession } from "@/lib/api"
+import { AMOUNTS, CURRENCIES, SERVICE_LABELS, SERVICES, runSession } from "@/lib/api"
 
-export default function RunPanel({ onStarted }: { onStarted: (id: number) => void }) {
+export default function RunPanel({ onStarted }: { onStarted: (id: number, total: number) => void }) {
   const [currency, setCurrency] = useState("USD")
   const [services, setServices] = useState<string[]>(SERVICES)
   const [loading, setLoading] = useState(false)
@@ -16,8 +16,9 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number) => voi
     setLoading(true)
     setError(null)
     try {
-      const { session_id } = await runSession({ to_currency: currency, services })
-      onStarted(session_id)
+      const res = await runSession({ to_currency: currency, services })
+      const total = (res as any).total ?? services.length * AMOUNTS.length
+      onStarted(res.session_id, total)
     } catch (e: any) {
       setError(e.message ?? "알 수 없는 오류")
     } finally {
@@ -63,7 +64,7 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number) => voi
         disabled={loading || !services.length}
         className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
       >
-        {loading ? "수집 중..." : "견적 수집 시작"}
+        {loading ? "요청 중..." : "견적 수집 시작"}
       </button>
     </div>
   )

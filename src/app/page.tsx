@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { CompareLatest, CURRENCIES, Session, getLatestComparison, getSessions } from "@/lib/api"
 import RunPanel from "@/components/RunPanel"
 import ComparisonMatrix from "@/components/ComparisonMatrix"
-import TrendChart from "@/components/TrendChart"
 import ManualInput from "@/components/ManualInput"
 
 function StatusBadge({ status }: { status: string }) {
@@ -20,6 +19,7 @@ export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [latest, setLatest] = useState<CompareLatest | null>(null)
   const [runningId, setRunningId] = useState<number | null>(null)
+  const [totalExpected, setTotalExpected] = useState(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const refresh = useCallback(async () => {
@@ -30,8 +30,9 @@ export default function Home() {
 
   useEffect(() => { refresh() }, [refresh])
 
-  const startPoll = (sessionId: number) => {
+  const startPoll = (sessionId: number, total: number) => {
     setRunningId(sessionId)
+    setTotalExpected(total)
     pollRef.current = setInterval(async () => {
       const s = await getSessions()
       setSessions(s)
@@ -39,14 +40,18 @@ export default function Home() {
       if (target && target.status !== "running") {
         clearInterval(pollRef.current!)
         setRunningId(null)
+        setTotalExpected(0)
         refresh()
       }
-    }, 3000)
+    }, 2000)
   }
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   const runningSession = sessions.find(s => s.id === runningId)
+  const progress = totalExpected > 0 && runningSession
+    ? Math.round((runningSession.quotesCount / totalExpected) * 100)
+    : 0
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -68,14 +73,18 @@ export default function Home() {
       </div>
 
       {runningSession && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-5 py-3 flex items-center gap-3">
-          <svg className="animate-spin h-4 w-4 text-yellow-600" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-          </svg>
-          <span className="text-sm text-yellow-800">
-            세션 #{runningSession.id} 수집 중 — {runningSession.quotesCount}개 완료
-          </span>
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-700 font-medium">세션 #{runningSession.id} 수집 중</span>
+            <span className="text-gray-500">{runningSession.quotesCount} / {totalExpected}</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-2">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div className="text-right text-xs text-blue-600 font-semibold">{progress}%</div>
         </div>
       )}
 
@@ -88,8 +97,6 @@ export default function Home() {
           <ComparisonMatrix matrix={latest?.matrix ?? []} currency={currency} />
         </div>
       </div>
-
-      <TrendChart currency={currency} />
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100">
@@ -120,9 +127,7 @@ export default function Home() {
               ))}
               {!sessions.length && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
-                    수집 기록 없음
-                  </td>
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">수집 기록 없음</td>
                 </tr>
               )}
             </tbody>
