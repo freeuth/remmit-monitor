@@ -136,7 +136,7 @@ export async function collectWirebarleyBatch(
         await sleep(500)
       }
 
-      const captured = state.last
+      const captured = state.last as Intercepted | null
       if (captured) {
         results.push({
           service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
