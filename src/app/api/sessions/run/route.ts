@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { waitUntil } from "@vercel/functions"
 import { prisma } from "@/lib/db"
 import { collectMoin, collectHanpass, collectUtransfer, collectWirebarley } from "@/lib/collectors"
 import type { QuoteResult } from "@/lib/collectors"
@@ -29,8 +30,8 @@ export async function POST(req: NextRequest) {
     data: { toCurrency, triggeredBy, status: "running" },
   })
 
-  // Run collection in background — don't await
-  runCollection(session.id, toCurrency, sendAmounts, services).catch(console.error)
+  // Keep function alive until collection finishes (Vercel waitUntil)
+  waitUntil(runCollection(session.id, toCurrency, sendAmounts, services).catch(console.error))
 
   return NextResponse.json({ session_id: session.id, status: "running" })
 }

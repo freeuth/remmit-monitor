@@ -6,6 +6,7 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number) => voi
   const [currency, setCurrency] = useState("USD")
   const [services, setServices] = useState<string[]>(SERVICES)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const toggle = (s: string) =>
     setServices(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
@@ -13,9 +14,12 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number) => voi
   const run = async () => {
     if (!services.length) return
     setLoading(true)
+    setError(null)
     try {
       const { session_id } = await runSession({ to_currency: currency, services })
       onStarted(session_id)
+    } catch (e: any) {
+      setError(e.message ?? "알 수 없는 오류")
     } finally {
       setLoading(false)
     }
@@ -49,6 +53,11 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number) => voi
           </button>
         ))}
       </div>
+      {error && (
+        <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
       <button
         onClick={run}
         disabled={loading || !services.length}
