@@ -108,33 +108,32 @@ export async function collectWirebarleyBatch(
     })
     debugResponses.push(`BTN_HREF:${btnHref}`)
 
-    if (btnHref && btnHref !== page.url()) {
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {}),
-        page.goto(btnHref, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {}),
-      ])
-      await sleep(2000)
-    } else {
-      await page.evaluate(() => {
-        const el = Array.from(document.querySelectorAll("a, button")).find(
-          el => el.textContent?.trim() === "시작하기"
-        ) as HTMLElement | undefined
-        el?.click()
-      })
-      await sleep(2500)
-    }
+    // Click 시작하기 (button, no href - may open modal or trigger SPA nav)
+    await page.evaluate(() => {
+      const el = Array.from(document.querySelectorAll("a, button")).find(
+        el => el.textContent?.trim() === "시작하기"
+      ) as HTMLElement | undefined
+      el?.click()
+    })
+    await sleep(3000)
 
-    // Capture state after navigation
-    const afterNav = await page.evaluate(() => ({
-      url: location.href,
-      inputs: document.querySelectorAll("input").length,
-      title: document.title,
-    }))
-    debugResponses.push(`AFTER_NAV: url=${afterNav.url} inputs=${afterNav.inputs} title=${afterNav.title}`)
+    const afterClick = await page.evaluate(() => {
+      const allInputs = document.querySelectorAll("input")
+      const visibleInputs = Array.from(allInputs).filter(el => (el as HTMLElement).offsetWidth > 0)
+      return {
+        url: location.href,
+        allInputs: allInputs.length,
+        visibleInputs: visibleInputs.length,
+        bodySnippet: document.body.innerText.slice(0, 300).replace(/\n/g, " "),
+      }
+    })
+    debugResponses.push(`AFTER_CLICK: url=${afterClick.url} allInputs=${afterClick.allInputs} visibleInputs=${afterClick.visibleInputs} body="${afterClick.bodySnippet.slice(0, 150)}"`)
 
-    // Poll for inputs if not yet visible
+    // Poll for inputs (up to 8s)
     for (let i = 0; i < 16; i++) {
-      const count = await page.evaluate(() => document.querySelectorAll("input").length)
+      const count = await page.evaluate(() =>
+        Array.from(document.querySelectorAll("input")).filter(el => (el as HTMLElement).offsetWidth > 0).length
+      )
       if (count > 0) break
       await sleep(500)
     }
