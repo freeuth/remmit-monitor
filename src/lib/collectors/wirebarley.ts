@@ -12,6 +12,68 @@ const SUPPORTED: Record<string, true> = {
 
 type Intercepted = { recipientAmount: number; exchangeRate?: number; feeKrw?: number }
 
+// Parse receive amount from page body text
+// e.g. "받는 금액  670.30  USD" or "보내는 금액  1,000,000  받는 금액  670.30"
+function parseReceiveFromBody(body: string, currency: string): number {
+  // Try "받는 금액 NNN" pattern
+  const patterns = [
+    new RegExp(`받는\\s*금액[\\s\\n]*(${currency})?[\\s\\n]*([\\d,]+\\.?\\d*)[\\s\\n]*${currency}?`),
+    new RegExp(`([\\d,]+\\.?\\d*)[\\s\\n]*${currency}[\\s\\n]*$`, "m"),
+  ]
+  for (const p of patterns) {
+    const m = body.match(p)
+    if (m) {
+      const val = Number((m[2] ?? m[1]).replace(/,/g, ""))
+      if (val > 0 && val < 100_000_000) return val
+    }
+  }
+  // Fallback: find all decimals in the vicinity of the currency name
+  const idx = body.indexOf(currency)
+  if (idx >= 0) {
+    const nearby = body.slice(Math.max(0, idx - 30), idx + 30)
+    const nums = nearby.match(/[\d,]+\.\d+/g)
+    if (nums) {
+      const v = Number(nums[0].replace(/,/g, ""))
+      if (v > 0) return v
+    }
+  }
+  return 0
+}
+
+// Click the send-amount element and type a new value
+async function setSendAmount(page: any, amount: number): Promise<boolean> {
+  return page.evaluate(async (amt: number) => {
+    // Find element showing a large KRW number (the send amount display)
+    const allEls = Array.from(document.querySelectorAll("*")) as HTMLElement[]
+    const candidates = allEls.filter(el => {
+      if (el.children.length > 0) return false
+      const txt = el.innerText?.trim().replace(/,/g, "") ?? ""
+      const n = Number(txt)
+      return n >= 100000 && n <= 10_000_000 && el.offsetWidth > 0
+    })
+
+    const el = candidates[0]
+    if (!el) return false
+
+    el.click()
+    el.focus()
+    await new Promise(r => setTimeout(r, 300))
+
+    // If contenteditable
+    if (el.isContentEditable) {
+      el.innerText = String(amt)
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+      el.dispatchEvent(new Event("change", { bubbles: true }))
+      return true
+    }
+
+    // Try selecting all and typing
+    document.execCommand?.("selectAll")
+    document.execCommand?.("insertText", false, String(amt))
+    return true
+  }, amount)
+}
+
 export async function collectWirebarleyBatch(
   sendAmounts: number[],
   toCurrency: string
@@ -43,156 +105,72 @@ export async function collectWirebarleyBatch(
     })
 
     const page = await browser.newPage()
-    await page.setExtraHTTPHeaders({
-      "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    })
-    await page.setViewport({ width: 1280, height: 800 })
-    // Override geolocation to Seoul
+    await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" })
+    await page.setViewport({ width: 1280, height: 900 })
     await page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, "language", { get: () => "ko-KR" })
       Object.defineProperty(navigator, "languages", { get: () => ["ko-KR", "ko"] })
     })
-    // Set timezone cookie hint
     await page.setCookie({ name: "lang", value: "ko", domain: ".wirebarley.com" })
-    const debugResponses: string[] = []
-    // Use object wrapper to avoid TypeScript closure narrowing issue
-    const state = { last: null as Intercepted | null }
 
-    page.on("response", async (response) => {
-      const url = response.url()
+    // Intercept API responses
+    const state = { last: null as Intercepted | null }
+    page.on("response", async (response: any) => {
       try {
         const ct = response.headers()["content-type"] ?? ""
         if (!ct.includes("json")) return
         const json = await response.json()
-
-        const candidates = [
-          json, json?.data, json?.result, json?.response, json?.payload,
-          ...(Array.isArray(json?.data) ? json.data : []),
-        ]
-
+        const candidates = [json, json?.data, json?.result, json?.response, json?.payload]
         for (const d of candidates) {
           if (!d || typeof d !== "object") continue
           const recv =
             d.receiveAmt ?? d.receivingAmount ?? d.toAmount ??
             d.receiveAmount ?? d.targetAmount ?? d.destinationAmount?.amount ??
-            d.amount ?? d.receive ?? d.recipientAmount
+            d.receive ?? d.recipientAmount
           if (recv != null && Number(recv) > 0 && Number(recv) < 1_000_000) {
             state.last = {
               recipientAmount: Number(recv),
-              exchangeRate: d.exchangeRate ?? d.rate ?? d.fxRate ?? d.baseRate,
+              exchangeRate: d.exchangeRate ?? d.rate ?? d.fxRate,
               feeKrw: d.fee ?? d.feeAmount ?? d.transferFee,
             }
-            debugResponses.push(`HIT:${url} → recv=${recv}`)
             return
           }
-        }
-        // Log all JSON URLs for discovery
-        if (debugResponses.length < 20) {
-          debugResponses.push(`${new URL(url).hostname}${new URL(url).pathname}`)
         }
       } catch {}
     })
 
     await page.goto("https://www.wirebarley.com/ko", { waitUntil: "domcontentloaded", timeout: 25000 })
-
     await sleep(2000)
 
-    // Click 시작하기 and wait for navigation
-    const btnHref = await page.evaluate(() => {
-      const el = Array.from(document.querySelectorAll("a, button")).find(
-        el => el.textContent?.trim() === "시작하기" || el.textContent?.trim() === "Get started"
-      )
-      if (!el) return null
-      return (el as HTMLAnchorElement).href ?? null
-    })
-    debugResponses.push(`BTN_HREF:${btnHref}`)
-
-    // Click 시작하기 (button, no href - may open modal or trigger SPA nav)
+    // Click 시작하기 to reveal calculator
     await page.evaluate(() => {
       const el = Array.from(document.querySelectorAll("a, button")).find(
-        el => el.textContent?.trim() === "시작하기"
+        (el: any) => el.textContent?.trim() === "시작하기"
       ) as HTMLElement | undefined
       el?.click()
     })
     await sleep(3000)
 
-    const afterClick = await page.evaluate(() => {
-      const allInputs = document.querySelectorAll("input")
-      const visibleInputs = Array.from(allInputs).filter(el => (el as HTMLElement).offsetWidth > 0)
-      return {
-        url: location.href,
-        allInputs: allInputs.length,
-        visibleInputs: visibleInputs.length,
-        bodySnippet: document.body.innerText.slice(0, 300).replace(/\n/g, " "),
-      }
-    })
-    debugResponses.push(`AFTER_CLICK: url=${afterClick.url} allInputs=${afterClick.allInputs} visibleInputs=${afterClick.visibleInputs} body="${afterClick.bodySnippet.slice(0, 150)}"`)
-
-    // Poll for inputs (up to 8s)
-    for (let i = 0; i < 16; i++) {
-      const count = await page.evaluate(() =>
-        Array.from(document.querySelectorAll("input")).filter(el => (el as HTMLElement).offsetWidth > 0).length
-      )
-      if (count > 0) break
-      await sleep(500)
-    }
-
-    // Debug: capture page state
-    const pageInfo = await page.evaluate(() => ({
-      title: document.title,
-      url: location.href,
-      inputCount: document.querySelectorAll("input").length,
-      bodySnippet: document.body.innerText.slice(0, 200),
-    }))
-    debugResponses.push(`PAGE: title="${pageInfo.title}" inputs=${pageInfo.inputCount} body="${pageInfo.bodySnippet.replace(/\n/g, " ").slice(0, 100)}"`)
-
-    // Try dismissing any cookie/popup overlays
-    await page.evaluate(() => {
-      document.querySelectorAll("[class*='modal'],[class*='popup'],[class*='overlay'],[class*='cookie'],[class*='banner']")
-        .forEach(el => (el as HTMLElement).style.display = "none")
-    })
-    await sleep(500)
-
-    // Change currency once if needed
+    // Change currency if needed (look for currency selector)
     if (currency !== "USD") {
       try {
-        const btns = await page.$$("button")
-        for (const btn of btns) {
-          const txt = await btn.evaluate(el => el.textContent?.trim() ?? "")
-          if (/^[A-Z]{3}$/.test(txt)) {
-            await btn.click()
-            await sleep(800)
-            break
-          }
-        }
-        const items = await page.$$("li, [role='option']")
-        for (const item of items) {
-          const txt = await item.evaluate(el => el.textContent?.trim() ?? "")
-          if (txt === currency || txt.startsWith(currency + " ")) {
-            await item.click()
-            await sleep(1000)
-            break
-          }
-        }
+        // Click current currency display (likely "USD" text in a button)
+        await page.evaluate(() => {
+          const el = Array.from(document.querySelectorAll("*")).find(
+            (el: any) => el.innerText?.trim() === "USD" && el.offsetWidth > 0
+          ) as HTMLElement | undefined
+          el?.click()
+        })
+        await sleep(800)
+        // Click target currency in dropdown
+        await page.evaluate((c: string) => {
+          const el = Array.from(document.querySelectorAll("*")).find(
+            (el: any) => el.innerText?.trim() === c && el.offsetWidth > 0
+          ) as HTMLElement | undefined
+          el?.click()
+        }, currency)
+        await sleep(1500)
       } catch {}
-    }
-
-    // Find the send amount input — try multiple strategies
-    const allInputs = await page.$$("input")
-    let sendInput = null
-    for (const input of allInputs) {
-      const info = await input.evaluate(el => {
-        const s = window.getComputedStyle(el)
-        return {
-          visible: s.display !== "none" && s.visibility !== "hidden" && el.offsetWidth > 0,
-          type: el.type,
-          placeholder: el.placeholder,
-          value: el.value,
-        }
-      })
-      debugResponses.push(`INPUT: visible=${info.visible} type=${info.type} ph="${info.placeholder}" val="${info.value}"`)
-      if (info.visible && info.type !== "hidden") { sendInput = input; break }
     }
 
     const results: QuoteResult[] = []
@@ -200,21 +178,24 @@ export async function collectWirebarleyBatch(
     for (const amount of sendAmounts) {
       state.last = null
 
-      if (sendInput) {
-        await sendInput.click({ clickCount: 3 })
-        await sendInput.type(String(amount), { delay: 50 })
-        // Also try pressing Enter/Tab to trigger recalculation
-        await sendInput.press("Tab")
+      // Try to change the send amount
+      const changed = await setSendAmount(page, amount)
+      if (changed) {
+        // Trigger keyboard events to force recalculation
+        await page.keyboard.press("Tab")
+        await page.keyboard.press("Enter")
+        await sleep(2000)
       }
 
-      // Wait up to 6s for API response
-      for (let i = 0; i < 12; i++) {
+      // Wait up to 4s for API response
+      for (let i = 0; i < 8; i++) {
         if (state.last) break
         await sleep(500)
       }
 
       const captured = state.last as Intercepted | null
-      if (captured) {
+
+      if (captured && captured.recipientAmount > 0) {
         results.push({
           service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
           sendAmountKrw: amount,
@@ -222,26 +203,17 @@ export async function collectWirebarleyBatch(
           recipientCurrency: currency,
           exchangeRate: captured.exchangeRate,
           feeKrw: captured.feeKrw != null ? Math.round(captured.feeKrw) : undefined,
-          rawSnapshot: debugResponses.slice(-3).join(" | "),
         })
       } else {
-        // DOM fallback
-        const domRecv = await page.evaluate(() => {
-          const inputs = Array.from(document.querySelectorAll("input")) as HTMLInputElement[]
-          const visible = inputs.filter(el => {
-            const s = window.getComputedStyle(el)
-            return s.display !== "none" && s.visibility !== "hidden" && el.offsetWidth > 0
-          })
-          return visible.map(el => el.value).join("|")
-        })
-        const nums = domRecv.split("|").map(v => Number(v.replace(/,/g, ""))).filter(n => n > 0 && n < 1_000_000)
-        const recv = nums[1] ?? nums[0] ?? 0
+        // Fallback: parse receive amount from page body text
+        const body = await page.evaluate(() => document.body.innerText)
+        const recv = parseReceiveFromBody(body, currency)
         results.push({
           service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
           sendAmountKrw: amount,
           recipientAmount: recv,
           recipientCurrency: currency,
-          rawSnapshot: `debug: ${debugResponses.slice(-5).join(" | ")} | dom: ${domRecv}`,
+          rawSnapshot: body.slice(0, 300),
           error: recv === 0 ? "Could not read recipient amount" : undefined,
         })
       }
