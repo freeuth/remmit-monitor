@@ -4,7 +4,7 @@ import { AMOUNTS, CURRENCY_GROUPS, SERVICE_LABELS, SERVICES, runSession } from "
 
 export default function RunPanel({ onStarted }: { onStarted: (id: number, total: number, currency: string) => void }) {
   const [currency, setCurrency] = useState("USD")
-  const [services, setServices] = useState<string[]>(SERVICES.filter(s => s !== "SENTBE"))
+  const [services, setServices] = useState<string[]>(SERVICES)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

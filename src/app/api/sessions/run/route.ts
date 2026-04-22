@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
-import { collectMoin, collectHanpass, collectUtransfer } from "@/lib/collectors"
+import { collectMoin, collectHanpass, collectUtransfer, collectSentBe } from "@/lib/collectors"
 import { collectWirebarleyBatch } from "@/lib/collectors/wirebarley"
 import type { QuoteResult } from "@/lib/collectors"
 
@@ -12,6 +12,7 @@ const FAST_COLLECTORS: Record<string, CollectorFn> = {
   MOIN: collectMoin,
   HANPASS: collectHanpass,
   UTRANSFER: collectUtransfer,
+  SENTBE: collectSentBe,
 }
 
 async function saveQuote(sessionId: number, q: QuoteResult): Promise<void> {
