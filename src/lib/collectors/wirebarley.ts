@@ -45,6 +45,7 @@ export async function collectWirebarleyBatch(
     const page = await browser.newPage()
     const debugResponses: string[] = []
     let lastIntercepted: Intercepted | null = null
+    // eslint-disable-next-line prefer-const
 
     // Intercept ALL JSON responses from wirebarley domain
     page.on("response", async (response) => {
@@ -142,14 +143,15 @@ export async function collectWirebarleyBatch(
         await sleep(500)
       }
 
-      if (lastIntercepted) {
+      const captured = lastIntercepted
+      if (captured) {
         results.push({
           service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
           sendAmountKrw: amount,
-          recipientAmount: lastIntercepted.recipientAmount,
+          recipientAmount: captured.recipientAmount,
           recipientCurrency: currency,
-          exchangeRate: lastIntercepted.exchangeRate,
-          feeKrw: lastIntercepted.feeKrw != null ? Math.round(lastIntercepted.feeKrw) : undefined,
+          exchangeRate: captured.exchangeRate,
+          feeKrw: captured.feeKrw != null ? Math.round(captured.feeKrw) : undefined,
           rawSnapshot: debugResponses.slice(-3).join(" | "),
         })
       } else {
