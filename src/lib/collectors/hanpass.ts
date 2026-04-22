@@ -47,7 +47,11 @@ export async function collectHanpass(sendAmountKrw: number, toCurrency: string):
 
     const received = result?.recipientAmount ?? result?.receiveAmount
       ?? result?.toAmount ?? result?.recipient
-    const rate = result?.exchangeRate ?? result?.rate ?? result?.fxRate
+    const rawRate = result?.exchangeRate ?? result?.rate ?? result?.fxRate
+    // Hanpass returns rate as foreign/KRW (e.g. 0.00067 USD/KRW) → invert to KRW/foreign
+    const rate = rawRate != null
+      ? (Number(rawRate) < 1 ? 1 / Number(rawRate) : Number(rawRate))
+      : null
     const fee = result?.feeAmount ?? result?.fee ?? result?.serviceFee
 
     if (received == null) {
@@ -60,7 +64,7 @@ export async function collectHanpass(sendAmountKrw: number, toCurrency: string):
     return {
       service: "HANPASS", fromCurrency: "KRW", toCurrency: currency,
       sendAmountKrw, recipientAmount: Number(received), recipientCurrency: currency,
-      exchangeRate: rate != null ? Number(rate) : undefined,
+      exchangeRate: rate != null ? rate : undefined,
       feeKrw: fee != null ? Math.round(Number(fee)) : undefined,
       rawSnapshot: raw,
     }
