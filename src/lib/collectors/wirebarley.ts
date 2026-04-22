@@ -44,10 +44,9 @@ export async function collectWirebarleyBatch(
 
     const page = await browser.newPage()
     const debugResponses: string[] = []
-    let lastIntercepted: Intercepted | null = null
-    // eslint-disable-next-line prefer-const
+    // Use object wrapper to avoid TypeScript closure narrowing issue
+    const state = { last: null as Intercepted | null }
 
-    // Intercept ALL JSON responses from wirebarley domain
     page.on("response", async (response) => {
       const url = response.url()
       if (!url.includes("wirebarley")) return
@@ -56,13 +55,8 @@ export async function collectWirebarleyBatch(
         if (!ct.includes("json")) return
         const json = await response.json()
 
-        // Try multiple response shapes
         const candidates = [
-          json,
-          json?.data,
-          json?.result,
-          json?.response,
-          json?.payload,
+          json, json?.data, json?.result, json?.response, json?.payload,
           ...(Array.isArray(json?.data) ? json.data : []),
         ]
 
@@ -73,7 +67,7 @@ export async function collectWirebarleyBatch(
             d.receiveAmount ?? d.targetAmount ?? d.destinationAmount?.amount ??
             d.amount ?? d.receive ?? d.recipientAmount
           if (recv != null && Number(recv) > 0) {
-            lastIntercepted = {
+            state.last = {
               recipientAmount: Number(recv),
               exchangeRate: d.exchangeRate ?? d.rate ?? d.fxRate ?? d.baseRate,
               feeKrw: d.fee ?? d.feeAmount ?? d.transferFee,
@@ -82,7 +76,6 @@ export async function collectWirebarleyBatch(
             return
           }
         }
-        // Log any wirebarley JSON for debugging
         debugResponses.push(`${url} → keys=${Object.keys(json).join(",")}`)
       } catch {}
     })
@@ -128,7 +121,7 @@ export async function collectWirebarleyBatch(
     const results: QuoteResult[] = []
 
     for (const amount of sendAmounts) {
-      lastIntercepted = null
+      state.last = null
 
       if (sendInput) {
         await sendInput.click({ clickCount: 3 })
@@ -139,11 +132,11 @@ export async function collectWirebarleyBatch(
 
       // Wait up to 6s for API response
       for (let i = 0; i < 12; i++) {
-        if (lastIntercepted) break
+        if (state.last) break
         await sleep(500)
       }
 
-      const captured = lastIntercepted
+      const captured = state.last
       if (captured) {
         results.push({
           service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
