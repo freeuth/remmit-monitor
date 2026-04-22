@@ -20,6 +20,7 @@ export default function Home() {
   const [latest, setLatest] = useState<CompareLatest | null>(null)
   const [runningId, setRunningId] = useState<number | null>(null)
   const [totalExpected, setTotalExpected] = useState(0)
+  const [sessionsOpen, setSessionsOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const refresh = useCallback(async (overrideCurrency?: string) => {
@@ -106,36 +107,47 @@ export default function Home() {
         <ComparisonMatrix matrix={latest?.matrix ?? []} currency={currency} session={latest?.session} />
 
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-800">수집 세션 기록</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
-                  <th className="px-4 py-2.5 text-left font-medium">ID</th>
-                  <th className="px-4 py-2.5 text-left font-medium">수집 시각</th>
-                  <th className="px-4 py-2.5 text-left font-medium">통화</th>
-                  <th className="px-4 py-2.5 text-left font-medium">상태</th>
-                  <th className="px-4 py-2.5 text-right font-medium">견적 수</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {sessions.map(s => (
-                  <tr key={s.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-2.5 text-gray-500">#{s.id}</td>
-                    <td className="px-4 py-2.5 text-gray-700">{new Date(s.triggeredAt).toLocaleString("ko-KR")}</td>
-                    <td className="px-4 py-2.5 font-medium">{s.toCurrency}</td>
-                    <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
-                    <td className="px-4 py-2.5 text-right text-gray-600">{s.quotesCount}</td>
-                  </tr>
-                ))}
-                {!sessions.length && (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">수집 기록 없음</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <button
+            onClick={() => setSessionsOpen(o => !o)}
+            className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <span className="font-semibold text-gray-800 text-sm">수집 세션 기록</span>
+            <span className="text-gray-400 text-xs flex items-center gap-1">
+              {sessions.length}건
+              <span className="text-base leading-none">{sessionsOpen ? "▲" : "▼"}</span>
+            </span>
+          </button>
+          {sessionsOpen && (
+            <>
+              <div className="border-t border-gray-100 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+                      <th className="px-4 py-2.5 text-left font-medium">ID</th>
+                      <th className="px-4 py-2.5 text-left font-medium">수집 시각</th>
+                      <th className="px-4 py-2.5 text-left font-medium">통화</th>
+                      <th className="px-4 py-2.5 text-left font-medium">상태</th>
+                      <th className="px-4 py-2.5 text-right font-medium">견적 수</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {sessions.map(s => (
+                      <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-2.5 text-gray-500">#{s.id}</td>
+                        <td className="px-4 py-2.5 text-gray-700">{new Date(s.triggeredAt).toLocaleString("ko-KR")}</td>
+                        <td className="px-4 py-2.5 font-medium">{s.toCurrency}</td>
+                        <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
+                        <td className="px-4 py-2.5 text-right text-gray-600">{s.quotesCount}</td>
+                      </tr>
+                    ))}
+                    {!sessions.length && (
+                      <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">수집 기록 없음</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       </main>
     </div>

@@ -3,6 +3,9 @@ import { MatrixRow, Quote, Session, SERVICE_COLORS, SERVICE_LABELS, SERVICES } f
 
 const JPY_LIKE = ["JPY", "VND", "IDR", "KHR", "MMK"]
 
+// 시중은행 기준 환전 스프레드 (KRW 기준 전신환 매도 기준 약 1.75%)
+const STANDARD_SPREAD = 0.0175
+
 function fmtAmt(n: number | undefined | null, currency: string) {
   if (n == null || n === 0) return null
   return JPY_LIKE.includes(currency)
@@ -31,7 +34,49 @@ function Diff({ moin, other }: { moin?: number | null; other?: number | null }) 
   )
 }
 
-function cellContent(q: Quote | undefined, moinQ: Quote | undefined, isBest: boolean, currency: string) {
+// 환율 우대율 및 숨겨진 환전수수료 계산
+function RateDiscount({
+  q, moinQ, sendAmountKrw,
+}: {
+  q: Quote; moinQ: Quote | undefined; sendAmountKrw: number
+}) {
+  if (!q.exchangeRate || !moinQ?.exchangeRate) return null
+  const moinRate = moinQ.exchangeRate
+  const compRate = q.exchangeRate
+  if (compRate <= moinRate * 1.0001) return null // 모인보다 환율이 같거나 좋으면 표시 안 함
+
+  const rateSpread = (compRate - moinRate) / moinRate
+  const discountPct = Math.max(0, Math.round((1 - rateSpread / STANDARD_SPREAD) * 10) * 10)
+
+  // 모인 환율로 바꿨을 때 vs 실제 환율 → 차이를 KRW로 환산
+  const base = sendAmountKrw - (q.feeKrw ?? 0)
+  const hiddenFeeKrw = Math.round(base * (1 - moinRate / compRate))
+
+  const discountColor =
+    discountPct >= 80 ? "bg-green-50 text-green-700" :
+    discountPct >= 50 ? "bg-yellow-50 text-yellow-700" :
+    "bg-red-50 text-red-600"
+
+  return (
+    <div className="flex items-center gap-1.5 mt-1 flex-wrap justify-end">
+      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${discountColor}`}>
+        우대 {discountPct}%
+      </span>
+      <span className="text-[10px] text-orange-500 font-medium">
+        환차 +{hiddenFeeKrw.toLocaleString("ko-KR")}원
+      </span>
+    </div>
+  )
+}
+
+function cellContent(
+  q: Quote | undefined,
+  moinQ: Quote | undefined,
+  isBest: boolean,
+  currency: string,
+  service: string,
+  sendAmountKrw: number,
+) {
   if (!q) return <span className="text-gray-300">—</span>
 
   const isUnsupported = q.notes?.includes("Unsupported currency")
@@ -77,6 +122,9 @@ function cellContent(q: Quote | undefined, moinQ: Quote | undefined, isBest: boo
         {fmtFee(q.feeKrw) && <span>수수료 {fmtFee(q.feeKrw)}</span>}
         {fmtRate(q.exchangeRate) && <span>환율 {fmtRate(q.exchangeRate)}</span>}
       </div>
+      {service !== "MOIN" && (
+        <RateDiscount q={q} moinQ={moinQ} sendAmountKrw={sendAmountKrw} />
+      )}
     </div>
   )
 }
@@ -97,26 +145,18 @@ function MoinSuggestion({ matrix, currency }: { matrix: MatrixRow[]; currency: s
       (b!.recipientAmount > a!.recipientAmount ? b : a)
     )!
 
-    const rate = moin.exchangeRate // KRW per 1 foreign unit
+    const rate = moin.exchangeRate
     const currentFee = moin.feeKrw ?? 0
     const moinAmt = moin.recipientAmount
     const compAmt = bestCompetitor.recipientAmount
     const bestSvc = SERVICES.find(s => row.quotes[s] === bestCompetitor)
 
-    // To beat competitor: (sendAmt - requiredFee) / rate > compAmt
-    // requiredFee = sendAmt - (compAmt * rate)  → to match
-    // subtract 1 KRW to beat by minimal margin
     const requiredFee = Math.floor(row.sendAmountKrw - compAmt * rate) - 1
     const diff = currentFee - requiredFee
 
     return {
       amount: row.sendAmountKrw,
-      moinAmt,
-      compAmt,
-      bestSvc,
-      currentFee,
-      requiredFee,
-      diff,
+      moinAmt, compAmt, bestSvc, currentFee, requiredFee, diff,
       isWinning: moinAmt >= compAmt,
     }
   }).filter(Boolean) as any[]
@@ -209,7 +249,7 @@ export default function ComparisonMatrix({ matrix, currency, session }: { matrix
             <span className="text-gray-400 font-normal text-sm ml-1">({currency})</span>
           </h2>
           <div className="flex flex-col items-end gap-0.5">
-            <span className="text-xs text-gray-400">● 최고 수취  ▲▼ 모인 대비</span>
+            <span className="text-xs text-gray-400">● 최고 수취  ▲▼ 모인 대비  우대% 시중은행 1.75% 기준</span>
             {session && (
               <span className="text-[11px] text-gray-400">
                 수집: {new Date(session.triggeredAt).toLocaleString("ko-KR")}
@@ -243,7 +283,7 @@ export default function ComparisonMatrix({ matrix, currency, session }: { matrix
                   </td>
                   {matrix.map(row => (
                     <td key={row.sendAmountKrw} className="px-4 py-3 text-right align-top">
-                      {cellContent(row.quotes[service], row.quotes["MOIN"], row.bestService === service, currency)}
+                      {cellContent(row.quotes[service], row.quotes["MOIN"], row.bestService === service, currency, service, row.sendAmountKrw)}
                     </td>
                   ))}
                 </tr>
@@ -252,7 +292,7 @@ export default function ComparisonMatrix({ matrix, currency, session }: { matrix
           </table>
         </div>
         <div className="px-5 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400">
-          수수료·환율은 수집 당시 기준
+          수수료·환율은 수집 당시 기준 · 환차는 동일 환율 적용 시 모인 대비 추가 부담액
         </div>
       </div>
 
