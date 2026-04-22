@@ -1,16 +1,25 @@
 import { QuoteResult } from "./types"
 
-// Numeric IDs used by SentBe API (POST /api/landing/page on oxygen.sentbe.com)
-// Discovered via Proxyman capture. source_currency=1 (KRW), source_country=209 (Korea)
-// To add more currencies: capture /api/landing/page in Proxyman while tapping the target currency in SentBe app
+// Numeric IDs discovered by probing POST /api/landing/page on oxygen.sentbe.com
+// source_currency=1 (KRW), source_country=209 (Korea)
 const SENTBE_MAP: Record<string, { currency: number; country: number }> = {
-  USD: { currency: 2, country: 239 },
-  PHP: { currency: 3, country: 173 },
-  VND: { currency: 4, country: 243 },
-  THB: { currency: 5, country: 216 },
-  EUR: { currency: 6, country: 82 },
-  JPY: { currency: 11, country: 109 },
-  CNY: { currency: 12, country: 46 },
+  USD: { currency: 2,  country: 239 },  // Bank standard 2500₩
+  PHP: { currency: 3,  country: 175 },  // Bank standard 2500₩
+  VND: { currency: 4,  country: 245 },  // Bank standard 2500₩
+  IDR: { currency: 5,  country: 103 },  // Bank standard 2500₩
+  TWD: { currency: 6,  country: 223 },  // Bank standard 2500₩
+  INR: { currency: 7,  country: 102 },  // Bank standard 2500₩
+  LKR: { currency: 8,  country: 168 },  // Bank 0₩ (free)
+  CNY: { currency: 9,  country: 47  },  // Alipay/Bank 5000₩
+  JPY: { currency: 14, country: 155 },  // Bank standard 2500₩
+  MYR: { currency: 12, country: 134 },  // Bank standard 2500₩
+  GBP: { currency: 17, country: 237 },  // Bank standard 2500₩
+  KHR: { currency: 18, country: 39  },  // Bank 2500₩
+  EUR: { currency: 19, country: 22  },  // Bank standard 2500₩
+  BDT: { currency: 25, country: 184 },  // Bank 5000₩
+  AUD: { currency: 28, country: 158 },  // Bank 5000₩
+  SEK: { currency: 29, country: 221 },  // Bank 5000₩
+  MXN: { currency: 31, country: 207 },  // Bank 5000₩
 }
 
 export async function collectSentBe(sendAmountKrw: number, toCurrency: string): Promise<QuoteResult> {
