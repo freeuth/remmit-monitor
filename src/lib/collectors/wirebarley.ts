@@ -2,47 +2,28 @@ import { QuoteResult } from "./types"
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-const SUPPORTED: Record<string, true> = {
-  USD: true, JPY: true, EUR: true, PHP: true,
-  VND: true, THB: true, CNY: true, AUD: true,
-  GBP: true, CAD: true, SGD: true, MYR: true, IDR: true,
-  HKD: true, NZD: true, INR: true, CHF: true,
-  SEK: true, NOK: true, DKK: true, AED: true,
+const CURRENCY_SLUGS: Record<string, string> = {
+  USD: "usd", JPY: "jpy", EUR: "eur", PHP: "php",
+  VND: "vnd", THB: "thb", CNY: "cny", AUD: "aud",
+  GBP: "gbp", CAD: "cad", SGD: "sgd", MYR: "myr",
+  IDR: "idr", HKD: "hkd", NZD: "nzd", INR: "inr",
+  CHF: "chf", SEK: "sek", NOK: "nok", DKK: "dkk",
+  AED: "aed",
 }
 
-// Set React-controlled input value via nativeInputValueSetter
-const JS_SET_INPUT = `
-  (function(labelText, value) {
-    var labels = Array.from(document.querySelectorAll('p'));
-    var label = labels.find(function(p) { return p.textContent && p.textContent.trim() === labelText; });
-    var input = label && label.parentElement && label.parentElement.querySelector('input');
-    if (!input) return false;
-    var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') && Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    if (setter) setter.call(input, String(value));
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })
-`
-
-// Read React-controlled input value by label
-const JS_READ_INPUT = `
-  (function(labelText) {
-    var labels = Array.from(document.querySelectorAll('p'));
-    var label = labels.find(function(p) { return p.textContent && p.textContent.trim() === labelText; });
-    var input = label && label.parentElement && label.parentElement.querySelector('input');
-    if (!input) return null;
-    return input.value;
-  })
-`
+interface WbRate {
+  rate: number    // KRW per 1 foreign unit
+  fee: number     // KRW
+}
 
 export async function collectWirebarleyBatch(
   sendAmounts: number[],
   toCurrency: string
 ): Promise<QuoteResult[]> {
   const currency = toCurrency.toUpperCase()
+  const slug = CURRENCY_SLUGS[currency]
 
-  if (!SUPPORTED[currency]) {
+  if (!slug) {
     return sendAmounts.map(amt => ({
       service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
       sendAmountKrw: amt, recipientAmount: 0, recipientCurrency: currency,
@@ -67,107 +48,96 @@ export async function collectWirebarleyBatch(
     })
 
     const page = await browser.newPage()
-    await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" })
+    await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9" })
     await page.setViewport({ width: 1280, height: 900 })
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, "language", { get: () => "ko-KR" })
-      Object.defineProperty(navigator, "languages", { get: () => ["ko-KR", "ko"] })
-    })
-    await page.setCookie({ name: "lang", value: "ko", domain: ".wirebarley.com" })
 
-    await page.goto("https://www.wirebarley.com/ko", { waitUntil: "domcontentloaded", timeout: 25000 })
-    await sleep(3000)
-
-    // Verify send amount input exists
-    const sendInputFound = await page.evaluate(JS_SET_INPUT + `('보내는 금액', '1000000')`)
-    if (!sendInputFound) {
-      throw new Error("보내는 금액 input을 찾지 못함 — 페이지 구조 변경됨")
-    }
-    await sleep(1500)
-
-    // Change currency if not USD
-    if (currency !== "USD") {
-      // Open currency dropdown by clicking the cursor-pointer div containing current currency text
-      await page.evaluate((c: string) => {
-        const all = Array.from(document.querySelectorAll("*"))
-        const currEl = all.find((el: any) => {
-          const rect = el.getBoundingClientRect()
-          return rect.width > 0 && rect.height > 0
-            && el.children.length === 0
-            && /^[A-Z]{3}$/.test((el.textContent ?? "").trim())
-        })
-        const trigger = currEl?.closest("[class*='cursor-pointer']") as HTMLElement | undefined
-        trigger?.click()
-      }, currency)
-      await sleep(800)
-
-      // Click the row with matching currency code
-      const selected = await page.evaluate((c: string) => {
-        const all = Array.from(document.querySelectorAll("*"))
-        const codeEl = all.find((el: any) => {
-          const rect = el.getBoundingClientRect()
-          return rect.width > 0 && el.children.length === 0 && (el.textContent ?? "").trim() === c
-        })
-        const row = codeEl?.closest("[class*='group'], [class*='cursor']") as HTMLElement | undefined
-        if (row) { row.click(); return true }
-        return false
-      }, currency)
-
-      if (!selected) {
-        await browser.close()
-        return sendAmounts.map(amt => ({
-          service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
-          sendAmountKrw: amt, recipientAmount: 0, recipientCurrency: currency,
-          error: `Unsupported currency: ${currency}`,
-        }))
-      }
-      await sleep(2000)
-    }
-
-    const results: QuoteResult[] = []
-
-    for (const amount of sendAmounts) {
-      // Set send amount
-      await page.evaluate(JS_SET_INPUT + `('보내는 금액', '${amount}')`)
-      await sleep(2000)
-
-      // Read receive amount directly from input
-      const recvRaw = await page.evaluate(JS_READ_INPUT + `('받는 금액')`) as string | null
-      const recipientAmount = recvRaw ? Number(recvRaw.replace(/,/g, "")) : 0
-
-      // Parse exchange rate and fee from body text
-      const body: string = await page.evaluate(() => document.body.innerText)
-
-      let exchangeRate: number | undefined
-      // Format A: "1 USD = 1,491.65 KRW"
-      const rateA = body.match(/1\s+[A-Z]{3}\s*=\s*([\d,]+\.?\d*)\s*KRW/)
-      if (rateA) exchangeRate = Number(rateA[1].replace(/,/g, ""))
-      // Format B: "1,000 KRW = 17,613.57 VND" → convert to KRW per 1 foreign
-      if (!exchangeRate) {
-        const rateB = body.match(/([\d,]+)\s*KRW\s*=\s*([\d,]+\.?\d*)\s*[A-Z]{3}/)
-        if (rateB) {
-          const krw = Number(rateB[1].replace(/,/g, ""))
-          const foreign = Number(rateB[2].replace(/,/g, ""))
-          if (foreign > 0) exchangeRate = krw / foreign
+    // Intercept exrate API responses — capture rate + fee before any DOM work
+    let capturedRate: WbRate | null = null
+    let capturedRaw = ""
+    page.on("response", async (response) => {
+      const url = response.url()
+      if (!url.includes("/remittance/api/exrate/")) return
+      if (!response.ok()) return
+      try {
+        const json = await response.json()
+        capturedRaw = JSON.stringify(json)
+        const d = json?.data
+        if (!d) return
+        // Try every known field name for rate and fee
+        const rate = d.exchangeRate ?? d.exrate ?? d.rate ?? d.ex_rate ?? d.krwPerUnit
+        const fee = d.fee ?? d.transferFee ?? d.transfer_fee ?? d.feeKrw ?? 0
+        if (rate && rate > 0) {
+          capturedRate = { rate: Number(rate), fee: Number(fee) }
         }
-      }
+      } catch {}
+    })
 
-      const feeMatch = body.match(/수수료\s*\n\s*([\d,]+)\s*KRW/)
-      const feeKrw = feeMatch ? Number(feeMatch[1].replace(/,/g, "")) : undefined
+    // Navigate directly to the currency page so the correct exrate is loaded
+    const url = `https://www.wirebarley.com/kr/ko/${slug}`
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 25000 })
+    await sleep(4000)  // wait for JS to mount + exrate API call
 
-      results.push({
-        service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
-        sendAmountKrw: amount,
-        recipientAmount,
-        recipientCurrency: currency,
-        exchangeRate,
-        feeKrw,
-        error: recipientAmount === 0 ? "Could not read recipient amount" : undefined,
+    // If intercept didn't work, try triggering the calculator manually
+    if (!capturedRate) {
+      // Try setting send amount input via React setter trick
+      await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll("input"))
+        const sendInput = inputs.find(i => {
+          const parent = i.closest("[class]")
+          return parent?.textContent?.includes("보내는 금액") || parent?.textContent?.includes("보내는금액")
+        })
+        if (!sendInput) return
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        setter?.call(sendInput, "1000000")
+        sendInput.dispatchEvent(new Event("input", { bubbles: true }))
       })
+      await sleep(3000)
+    }
+
+    // Fallback: parse rate from page body text if API intercept missed
+    if (!capturedRate) {
+      const body: string = await page.evaluate(() => document.body.innerText)
+      // "1 USD = 1,491.65 KRW"
+      const rateMatch = body.match(/1\s+[A-Z]{3}\s*=\s*([\d,]+\.?\d*)\s*KRW/)
+      // "1,000 KRW = 12,000.00 JPY" style
+      const rateMatch2 = body.match(/([\d,]+)\s*KRW\s*=\s*([\d,]+\.?\d*)\s*[A-Z]{3}/)
+      const feeMatch = body.match(/수수료\s*[:\s]*([\d,]+)\s*KRW/i)
+
+      let rate = 0
+      if (rateMatch) rate = Number(rateMatch[1].replace(/,/g, ""))
+      else if (rateMatch2) {
+        const krw = Number(rateMatch2[1].replace(/,/g, ""))
+        const foreign = Number(rateMatch2[2].replace(/,/g, ""))
+        if (foreign > 0) rate = krw / foreign
+      }
+      const fee = feeMatch ? Number(feeMatch[1].replace(/,/g, "")) : 0
+
+      if (rate > 0) {
+        capturedRate = { rate, fee }
+      }
     }
 
     await browser.close()
-    return results
+
+    if (!capturedRate) {
+      return sendAmounts.map(amt => ({
+        service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
+        sendAmountKrw: amt, recipientAmount: 0, recipientCurrency: currency,
+        error: "환율 데이터를 가져오지 못했습니다",
+        rawSnapshot: capturedRaw || undefined,
+      }))
+    }
+
+    const { rate, fee } = capturedRate
+    return sendAmounts.map(amt => ({
+      service: "WIREBARLEY", fromCurrency: "KRW", toCurrency: currency,
+      sendAmountKrw: amt,
+      recipientAmount: (amt - fee) / rate,
+      recipientCurrency: currency,
+      exchangeRate: rate,
+      feeKrw: fee,
+      rawSnapshot: capturedRaw || undefined,
+    }))
   } catch (e: any) {
     if (browser) await browser.close().catch(() => {})
     return sendAmounts.map(amt => ({
