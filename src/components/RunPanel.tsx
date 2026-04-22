@@ -2,7 +2,7 @@
 import { useState } from "react"
 import { AMOUNTS, CURRENCY_GROUPS, SERVICE_LABELS, SERVICES, runSession } from "@/lib/api"
 
-export default function RunPanel({ onStarted }: { onStarted: (id: number, total: number) => void }) {
+export default function RunPanel({ onStarted }: { onStarted: (id: number, total: number, currency: string) => void }) {
   const [currency, setCurrency] = useState("USD")
   const [services, setServices] = useState<string[]>(SERVICES.filter(s => s !== "SENTBE"))
   const [loading, setLoading] = useState(false)
@@ -17,7 +17,7 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number, total:
     setError(null)
     try {
       const res = await runSession({ to_currency: currency, services })
-      onStarted(res.session_id, res.total ?? services.length * AMOUNTS.length)
+      onStarted(res.session_id, res.total ?? services.length * AMOUNTS.length, currency)
     } catch (e: any) {
       setError(e.message ?? "알 수 없는 오류")
     } finally {

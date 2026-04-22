@@ -30,7 +30,7 @@ export default function Home() {
 
   useEffect(() => { refresh() }, [refresh])
 
-  const startPoll = (sessionId: number, total: number) => {
+  const startPoll = (sessionId: number, total: number, collectedCurrency: string) => {
     setRunningId(sessionId)
     setTotalExpected(total)
     pollRef.current = setInterval(async () => {
@@ -41,7 +41,7 @@ export default function Home() {
         clearInterval(pollRef.current!)
         setRunningId(null)
         setTotalExpected(0)
-        refresh()
+        setCurrency(collectedCurrency)
       }
     }, 2000)
   }
