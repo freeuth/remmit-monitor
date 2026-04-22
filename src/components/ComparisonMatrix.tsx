@@ -36,6 +36,7 @@ function cellContent(q: Quote | undefined, moinQ: Quote | undefined, isBest: boo
 
   const isUnsupported = q.notes?.includes("Unsupported currency")
   const isError = !isUnsupported && q.notes?.startsWith("ERROR:")
+  const errorDetail = isError ? q.notes!.replace(/^ERROR:\s*/, "") : null
   const amt = fmtAmt(q.recipientAmount, currency)
 
   if (isUnsupported) {
@@ -48,7 +49,17 @@ function cellContent(q: Quote | undefined, moinQ: Quote | undefined, isBest: boo
   if (isError || !amt) {
     return (
       <div className="flex flex-col items-end gap-0.5">
-        <span className="text-xs bg-red-50 text-red-400 px-2 py-0.5 rounded-full">오류</span>
+        <span
+          className="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full cursor-help"
+          title={errorDetail ?? undefined}
+        >
+          수집 실패
+        </span>
+        {errorDetail && (
+          <span className="text-[10px] text-gray-400 max-w-[120px] truncate text-right" title={errorDetail}>
+            {errorDetail}
+          </span>
+        )}
       </div>
     )
   }
@@ -210,7 +221,7 @@ export default function ComparisonMatrix({ matrix, currency, session }: { matrix
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50">
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 w-28">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 w-32 whitespace-nowrap">
                   서비스
                 </th>
                 {matrix.map(row => (
@@ -223,7 +234,7 @@ export default function ComparisonMatrix({ matrix, currency, session }: { matrix
             <tbody>
               {activeServices.map(service => (
                 <tr key={service} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                         style={{ backgroundColor: SERVICE_COLORS[service] }} />

@@ -26,48 +26,40 @@ export default function RunPanel({ onStarted }: { onStarted: (id: number, total:
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-      <h2 className="font-semibold text-gray-800">견적 수집</h2>
-      <div className="flex flex-wrap gap-3 items-center">
-        <label className="text-sm text-gray-600 shrink-0">통화</label>
-        <select
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          value={currency}
-          onChange={e => setCurrency(e.target.value)}
-        >
-          {CURRENCY_GROUPS.map(g => (
-            <optgroup key={g.label} label={g.label}>
-              {g.currencies.map(c => <option key={c} value={c}>{c}</option>)}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-      <div className="flex flex-wrap gap-2">
+    <div className="flex items-center gap-3 flex-wrap justify-end">
+      <select
+        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        value={currency}
+        onChange={e => setCurrency(e.target.value)}
+      >
+        {CURRENCY_GROUPS.map(g => (
+          <optgroup key={g.label} label={g.label}>
+            {g.currencies.map(c => <option key={c} value={c}>{c}</option>)}
+          </optgroup>
+        ))}
+      </select>
+      <div className="flex gap-1.5 flex-wrap">
         {SERVICES.map(s => (
           <button
             key={s}
             onClick={() => toggle(s)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               services.includes(s)
                 ? "bg-blue-600 text-white border-blue-600"
-                : "bg-white text-gray-500 border-gray-300 hover:border-blue-400"
+                : "bg-white text-gray-400 border-gray-200 hover:border-blue-400"
             }`}
           >
             {SERVICE_LABELS[s]}
           </button>
         ))}
       </div>
-      {error && (
-        <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          {error}
-        </div>
-      )}
+      {error && <span className="text-xs text-red-500 shrink-0">{error}</span>}
       <button
         onClick={run}
         disabled={loading || !services.length}
-        className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors shrink-0"
       >
-        {loading ? "요청 중..." : "견적 수집 시작"}
+        {loading ? "요청 중..." : "수집 시작"}
       </button>
     </div>
   )

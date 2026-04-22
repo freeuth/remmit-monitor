@@ -1,6 +1,6 @@
 "use client"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { CompareLatest, CURRENCIES, Session, getLatestComparison, getSessions } from "@/lib/api"
+import { CompareLatest, CURRENCY_GROUPS, Session, getLatestComparison, getSessions } from "@/lib/api"
 import RunPanel from "@/components/RunPanel"
 import ComparisonMatrix from "@/components/ComparisonMatrix"
 import ManualInput from "@/components/ManualInput"
@@ -55,86 +55,89 @@ export default function Home() {
     : 0
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">해외송금 견적 모니터</h1>
-          <p className="text-sm text-gray-500 mt-0.5">내부 전용 · 경쟁사 최종 수취 금액 비교</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">통화</label>
-          <select
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={currency}
-            onChange={e => setCurrency(e.target.value)}
-          >
-            {CURRENCIES.map(c => <option key={c}>{c}</option>)}
-          </select>
+    <div className="min-h-screen bg-gray-50">
+      {/* Sticky header with collection controls */}
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-screen-xl mx-auto px-6">
+          <div className="flex items-center gap-6 py-3">
+            <div className="shrink-0">
+              <h1 className="text-base font-bold text-gray-900">해외송금 견적 모니터</h1>
+              <p className="text-xs text-gray-400">내부 전용 · 경쟁사 최종 수취 금액 비교</p>
+            </div>
+            <div className="flex-1">
+              <RunPanel onStarted={startPoll} />
+            </div>
+          </div>
+          {runningSession && (
+            <div className="pb-3 flex items-center gap-3">
+              <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <span className="text-xs font-semibold text-blue-600 w-10 text-right">{progress}%</span>
+              <span className="text-xs text-gray-400">{runningSession.quotesCount} / {totalExpected}</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {runningSession && (
-        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-700 font-medium">세션 #{runningSession.id} 수집 중</span>
-            <span className="text-gray-500">{runningSession.quotesCount} / {totalExpected}</span>
+      {/* Main content */}
+      <main className="max-w-screen-xl mx-auto px-6 py-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-gray-600">비교 통화</label>
+            <select
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              value={currency}
+              onChange={e => setCurrency(e.target.value)}
+            >
+              {CURRENCY_GROUPS.map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                </optgroup>
+              ))}
+            </select>
           </div>
-          <div className="w-full bg-gray-100 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="text-right text-xs text-blue-600 font-semibold">{progress}%</div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 space-y-4">
-          <RunPanel onStarted={startPoll} />
           <ManualInput onSaved={refresh} />
         </div>
-        <div className="lg:col-span-2">
-          <ComparisonMatrix matrix={latest?.matrix ?? []} currency={currency} session={latest?.session} />
-        </div>
-      </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-800">수집 세션 기록</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
-                <th className="px-4 py-2.5 text-left font-medium">ID</th>
-                <th className="px-4 py-2.5 text-left font-medium">수집 시각</th>
-                <th className="px-4 py-2.5 text-left font-medium">통화</th>
-                <th className="px-4 py-2.5 text-left font-medium">상태</th>
-                <th className="px-4 py-2.5 text-right font-medium">견적 수</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {sessions.map(s => (
-                <tr key={s.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-2.5 text-gray-500">#{s.id}</td>
-                  <td className="px-4 py-2.5 text-gray-700">
-                    {new Date(s.triggeredAt).toLocaleString("ko-KR")}
-                  </td>
-                  <td className="px-4 py-2.5 font-medium">{s.toCurrency}</td>
-                  <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
-                  <td className="px-4 py-2.5 text-right text-gray-600">{s.quotesCount}</td>
+        <ComparisonMatrix matrix={latest?.matrix ?? []} currency={currency} session={latest?.session} />
+
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-800">수집 세션 기록</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+                  <th className="px-4 py-2.5 text-left font-medium">ID</th>
+                  <th className="px-4 py-2.5 text-left font-medium">수집 시각</th>
+                  <th className="px-4 py-2.5 text-left font-medium">통화</th>
+                  <th className="px-4 py-2.5 text-left font-medium">상태</th>
+                  <th className="px-4 py-2.5 text-right font-medium">견적 수</th>
                 </tr>
-              ))}
-              {!sessions.length && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">수집 기록 없음</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {sessions.map(s => (
+                  <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-2.5 text-gray-500">#{s.id}</td>
+                    <td className="px-4 py-2.5 text-gray-700">{new Date(s.triggeredAt).toLocaleString("ko-KR")}</td>
+                    <td className="px-4 py-2.5 font-medium">{s.toCurrency}</td>
+                    <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{s.quotesCount}</td>
+                  </tr>
+                ))}
+                {!sessions.length && (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">수집 기록 없음</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   )
 }
