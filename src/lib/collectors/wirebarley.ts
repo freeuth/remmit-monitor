@@ -96,13 +96,25 @@ export async function collectWirebarleyBatch(
 
     await page.goto("https://www.wirebarley.com/ko", { waitUntil: "domcontentloaded", timeout: 25000 })
 
-    // Poll for calculator inputs to appear (up to 10s)
-    for (let i = 0; i < 20; i++) {
+    await sleep(2000)
+
+    // Click 시작하기 / Get started to enter calculator
+    const started = await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll("a, button")).find(
+        el => el.textContent?.trim() === "시작하기" || el.textContent?.trim() === "Get started"
+      ) as HTMLElement | undefined
+      if (btn) { btn.click(); return true }
+      return false
+    })
+    if (started) await sleep(2500)
+
+    // Poll for calculator inputs (up to 8s)
+    for (let i = 0; i < 16; i++) {
       const count = await page.evaluate(() => document.querySelectorAll("input").length)
       if (count > 0) break
       await sleep(500)
     }
-    await sleep(1000)
+    await sleep(500)
 
     // Debug: capture page state
     const pageInfo = await page.evaluate(() => ({
