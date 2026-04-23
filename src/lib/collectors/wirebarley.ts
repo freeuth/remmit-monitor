@@ -51,12 +51,13 @@ export async function collectWirebarleyBatch(
     await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9" })
     await page.setViewport({ width: 1280, height: 900 })
 
-    // Intercept exrate API responses — capture rate + fee before any DOM work
+    // Intercept exrate API responses — only capture the target currency, not USD default
     let capturedRate: WbRate | null = null
     let capturedRaw = ""
     page.on("response", async (response) => {
       const url = response.url()
       if (!url.includes("/remittance/api/exrate/")) return
+      if (!url.toUpperCase().includes(`/${currency}`)) return  // skip other currencies
       if (!response.ok()) return
       try {
         const json = await response.json()

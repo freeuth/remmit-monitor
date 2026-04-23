@@ -31,17 +31,25 @@ export async function collectSentBe(sendAmountKrw: number, toCurrency: string): 
   }
 
   try {
-    const res = await fetch("https://oxygen.sentbe.com/api/landing/page", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source_currency: 1,
-        currency: mapping.currency,
-        country: mapping.country,
-        pid: "1142560",
-        source_country: 209,
-      }),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
+    let res: Response
+    try {
+      res = await fetch("https://oxygen.sentbe.com/api/landing/page", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_currency: 1,
+          currency: mapping.currency,
+          country: mapping.country,
+          pid: "1142560",
+          source_country: 209,
+        }),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
 
     if (!res.ok) {
       const text = await res.text()

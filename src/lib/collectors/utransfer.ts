@@ -46,21 +46,21 @@ export async function collectUtransfer(sendAmountKrw: number, toCurrency: string
         error: `Unsupported currency: ${currency}` }
     }
 
-    const exRate = info.ex_rate       // KRW per `multiplier` units of foreign currency
-    const fee = info.fee_amount       // KRW flat fee
-    const multiplier = info.multiplier ?? 1
+    // ex_rate is always KRW per 1 unit of foreign currency
+    // multiplier is a display hint only (e.g. 100 = "show as per 100 JPY on site")
+    const exRate = info.ex_rate
+    const fee = info.fee_amount
     const precision = info.precision ?? 2
 
-    // recipient = (sendAmount - fee) / exRate * multiplier
     const netKrw = sendAmountKrw - fee
-    const recipient = (netKrw / exRate) * multiplier
+    const recipient = netKrw / exRate
 
     return {
       service: "UTRANSFER", fromCurrency: "KRW", toCurrency: currency,
       sendAmountKrw,
       recipientAmount: Number(recipient.toFixed(precision)),
       recipientCurrency: currency,
-      exchangeRate: exRate / multiplier,   // normalize: KRW per 1 unit
+      exchangeRate: exRate,
       feeKrw: Math.round(fee),
       rawSnapshot: JSON.stringify(info),
     }
