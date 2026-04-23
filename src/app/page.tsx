@@ -29,13 +29,17 @@ export default function Home() {
     setLatest(l)
   }, [currency])
 
+  // Always keep a ref to the latest refresh so setInterval doesn't capture a stale closure
+  const refreshRef = useRef(refresh)
+  useEffect(() => { refreshRef.current = refresh }, [refresh])
+
   useEffect(() => { refresh() }, [refresh])
 
   const startPoll = (sessionId: number, total: number, collectedCurrency: string) => {
     setRunningId(sessionId)
     setTotalExpected(total)
     setCurrency(collectedCurrency)
-    refresh(collectedCurrency)
+    refreshRef.current(collectedCurrency)
     pollRef.current = setInterval(async () => {
       const s = await getSessions()
       setSessions(s)
@@ -44,8 +48,7 @@ export default function Home() {
         clearInterval(pollRef.current!)
         setRunningId(null)
         setTotalExpected(0)
-        setCurrency(collectedCurrency)
-        refresh(collectedCurrency)
+        refreshRef.current(collectedCurrency)
       }
     }, 2000)
   }
