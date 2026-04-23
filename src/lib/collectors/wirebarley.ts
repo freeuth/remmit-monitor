@@ -57,7 +57,9 @@ export async function collectWirebarleyBatch(
     page.on("response", async (response) => {
       const url = response.url()
       if (!url.includes("/remittance/api/exrate/")) return
-      if (!url.toUpperCase().includes(`/${currency}`)) return  // skip other currencies
+      // Only capture the response for the target currency (avoid grabbing the USD default)
+      const upperUrl = url.toUpperCase()
+      if (!upperUrl.includes(currency)) return
       if (!response.ok()) return
       try {
         const json = await response.json()
@@ -78,30 +80,44 @@ export async function collectWirebarleyBatch(
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 25000 })
     await sleep(4000)  // wait for JS to mount + exrate API call
 
-    // If intercept didn't work, try triggering the calculator manually
+    // If intercept didn't work, try switching currency dropdown then triggering calc
     if (!capturedRate) {
-      // Try setting send amount input via React setter trick
-      await page.evaluate(() => {
+      await page.evaluate((cur: string) => {
+        // Try <select> elements first
+        const selects = Array.from(document.querySelectorAll<HTMLSelectElement>("select"))
+        for (const sel of selects) {
+          const opt = Array.from(sel.options).find(o =>
+            o.value.toUpperCase() === cur || o.text.toUpperCase().includes(cur)
+          )
+          if (opt) {
+            const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
+            setter?.call(sel, opt.value)
+            sel.dispatchEvent(new Event("change", { bubbles: true }))
+          }
+        }
+        // Also try amount input to re-trigger exrate fetch
         const inputs = Array.from(document.querySelectorAll("input"))
         const sendInput = inputs.find(i => {
           const parent = i.closest("[class]")
           return parent?.textContent?.includes("보내는 금액") || parent?.textContent?.includes("보내는금액")
         })
-        if (!sendInput) return
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
-        setter?.call(sendInput, "1000000")
-        sendInput.dispatchEvent(new Event("input", { bubbles: true }))
-      })
+        if (sendInput) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+          setter?.call(sendInput, "1000000")
+          sendInput.dispatchEvent(new Event("input", { bubbles: true }))
+        }
+      }, currency)
       await sleep(3000)
     }
 
     // Fallback: parse rate from page body text if API intercept missed
+    // Use currency-specific regex so USD/other rates on the page are not captured
     if (!capturedRate) {
       const body: string = await page.evaluate(() => document.body.innerText)
-      // "1 USD = 1,491.65 KRW"
-      const rateMatch = body.match(/1\s+[A-Z]{3}\s*=\s*([\d,]+\.?\d*)\s*KRW/)
-      // "1,000 KRW = 12,000.00 JPY" style
-      const rateMatch2 = body.match(/([\d,]+)\s*KRW\s*=\s*([\d,]+\.?\d*)\s*[A-Z]{3}/)
+      // "1 MYR = 373.45 KRW"
+      const rateMatch = body.match(new RegExp(`1\\s+${currency}\\s*=\\s*([\\d,]+\\.?\\d*)\\s*KRW`, "i"))
+      // "1,000 KRW = 2.68 MYR"
+      const rateMatch2 = body.match(new RegExp(`([\\d,]+)\\s*KRW\\s*=\\s*([\\d,]+\\.?\\d*)\\s*${currency}`, "i"))
       const feeMatch = body.match(/수수료\s*[:\s]*([\d,]+)\s*KRW/i)
 
       let rate = 0
