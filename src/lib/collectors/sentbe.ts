@@ -42,7 +42,6 @@ export async function collectSentBe(sendAmountKrw: number, toCurrency: string): 
           source_currency: 1,
           currency: mapping.currency,
           country: mapping.country,
-          pid: "1142560",
           source_country: 209,
         }),
         signal: controller.signal,
