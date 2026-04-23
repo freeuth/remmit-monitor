@@ -103,8 +103,13 @@ export async function collectWirebarleyBatch(
       return false
     }, currency)
 
-    // Wait for exrate API call triggered by country selection
-    await sleep(3000)
+    // Country click may trigger page navigation (e.g. Japan → /?lang=ko)
+    // Wait for navigation first, then extra time for React render
+    await Promise.race([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => {}),
+      sleep(3000),
+    ])
+    await sleep(2000) // additional settle time after navigation/render
 
     // Pick best captured exrate: URL-matching first, else last
     let capturedRate: WbRate | null = null
