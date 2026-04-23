@@ -34,6 +34,8 @@ export default function Home() {
   const startPoll = (sessionId: number, total: number, collectedCurrency: string) => {
     setRunningId(sessionId)
     setTotalExpected(total)
+    setCurrency(collectedCurrency)
+    refresh(collectedCurrency)
     pollRef.current = setInterval(async () => {
       const s = await getSessions()
       setSessions(s)
