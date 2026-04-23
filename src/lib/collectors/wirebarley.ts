@@ -69,8 +69,10 @@ export async function collectWirebarleyBatch(
       } catch {}
     })
 
-    // Navigate to currency-specific page (may pre-select the currency)
-    const pageUrl = `https://www.wirebarley.com/kr/ko/${slug}`
+    // Always start from a different currency page so the target selection
+    // always triggers a fresh exrate API call (same-URL navigation does nothing)
+    const startSlug = slug === "usd" ? "jpy" : "usd"
+    const pageUrl = `https://www.wirebarley.com/kr/ko/${startSlug}`
     await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 25000 })
     await sleep(3000)
 
@@ -114,7 +116,7 @@ export async function collectWirebarleyBatch(
       capturedRaw = match.raw
     }
 
-    // Last resort: parse rate from body text (currency-specific regex)
+    // Fallback 1: parse rate from body text (currency-specific regex)
     if (!capturedRate) {
       const body: string = await page.evaluate(() => document.body.innerText)
       const rateMatch = body.match(new RegExp(`1\\s+${currency}\\s*=\\s*([\\d,]+\\.?\\d*)\\s*KRW`, "i"))
@@ -130,6 +132,20 @@ export async function collectWirebarleyBatch(
       }
       const fee = feeMatch ? Number(feeMatch[1].replace(/,/g, "")) : 0
       if (rate > 0) capturedRate = { rate, fee }
+    }
+
+    // Fallback 2: read send/receive amounts directly from calculator DOM buttons
+    // (works when page navigates e.g. JP→/?lang=ko and shows amounts without API call)
+    if (!capturedRate) {
+      const domRate = await page.evaluate((sendAmt: number) => {
+        const btns = Array.from(document.querySelectorAll("button[class*='w-full text-left']"))
+        const vals = btns.map(b => Number(b.textContent?.trim().replace(/,/g, "") ?? "0")).filter(v => v > 0)
+        const send = vals.find(v => Math.abs(v - sendAmt) < sendAmt * 0.01)
+        const receive = vals.find(v => v !== send && v > 0)
+        if (send && receive) return send / receive
+        return null
+      }, sendAmounts[0])
+      if (domRate && domRate > 0) capturedRate = { rate: domRate, fee: 0 }
     }
 
     await browser.close()
