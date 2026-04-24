@@ -10,9 +10,12 @@ export default function ManualInput({ onSaved }: { onSaved: () => void }) {
   const [notes, setNotes] = useState("")
   const [saving, setSaving] = useState(false)
 
+  const [error, setError] = useState<string | null>(null)
+
   const save = async () => {
     if (!recipient) return
     setSaving(true)
+    setError(null)
     try {
       await addManualQuote({
         service: "SENTBE",
@@ -27,6 +30,8 @@ export default function ManualInput({ onSaved }: { onSaved: () => void }) {
       setNotes("")
       setOpen(false)
       onSaved()
+    } catch (e: any) {
+      setError(e.message ?? "저장 실패")
     } finally {
       setSaving(false)
     }
@@ -88,6 +93,7 @@ export default function ManualInput({ onSaved }: { onSaved: () => void }) {
           />
         </div>
       </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
       <button
         onClick={save}
         disabled={saving || !recipient}

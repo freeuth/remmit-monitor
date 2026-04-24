@@ -43,30 +43,40 @@ function RateDiscount({
   if (!q.exchangeRate || !moinQ?.exchangeRate) return null
   const moinRate = moinQ.exchangeRate
   const compRate = q.exchangeRate
-  if (compRate <= moinRate * 1.0001) return null // 모인보다 환율이 같거나 좋으면 표시 안 함
+  const diff = (compRate - moinRate) / moinRate
+  if (Math.abs(diff) < 0.0001) return null
 
-  const rateSpread = (compRate - moinRate) / moinRate
-  const discountPct = Math.max(0, Math.round((1 - rateSpread / STANDARD_SPREAD) * 10) * 10)
-
-  // 모인 환율로 바꿨을 때 vs 실제 환율 → 차이를 KRW로 환산
   const base = sendAmountKrw - (q.feeKrw ?? 0)
-  const hiddenFeeKrw = Math.round(base * (1 - moinRate / compRate))
 
-  const discountColor =
-    discountPct >= 80 ? "bg-green-50 text-green-700" :
-    discountPct >= 50 ? "bg-yellow-50 text-yellow-700" :
-    "bg-red-50 text-red-600"
-
-  return (
-    <div className="flex items-center gap-1.5 mt-1 flex-wrap justify-end">
-      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${discountColor}`}>
-        우대 {discountPct}%
-      </span>
-      <span className="text-[10px] text-orange-500 font-medium">
-        환차 +{hiddenFeeKrw.toLocaleString("ko-KR")}원
-      </span>
-    </div>
-  )
+  if (diff > 0) {
+    // 경쟁사 환율이 MOIN보다 불리 (더 많은 KRW 필요) → 숨겨진 환차 비용
+    const rateSpread = diff
+    const discountPct = Math.max(0, Math.round((1 - rateSpread / STANDARD_SPREAD) * 10) * 10)
+    const hiddenFeeKrw = Math.round(base * (1 - moinRate / compRate))
+    const discountColor =
+      discountPct >= 80 ? "bg-green-50 text-green-700" :
+      discountPct >= 50 ? "bg-yellow-50 text-yellow-700" :
+      "bg-red-50 text-red-600"
+    return (
+      <div className="flex items-center gap-1.5 mt-1 flex-wrap justify-end">
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${discountColor}`}>
+          우대 {discountPct}%
+        </span>
+        <span className="text-[10px] text-orange-500 font-medium">
+          환차 +{hiddenFeeKrw.toLocaleString("ko-KR")}원
+        </span>
+      </div>
+    )
+  } else {
+    // 경쟁사 환율이 MOIN보다 유리 (더 적은 KRW 필요) → 환율 우위
+    const advantageKrw = Math.round(base * (moinRate / compRate - 1))
+    return (
+      <div className="flex items-center gap-1.5 mt-1 flex-wrap justify-end">
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">환율 유리</span>
+        <span className="text-[10px] text-sky-600 font-medium">+{advantageKrw.toLocaleString("ko-KR")}원</span>
+      </div>
+    )
+  }
 }
 
 function cellContent(
@@ -137,7 +147,7 @@ function MoinSuggestion({ matrix, currency }: { matrix: MatrixRow[]; currency: s
 
     const competitors = SERVICES.filter(s => s !== "MOIN" && s !== "SENTBE")
       .map(s => row.quotes[s])
-      .filter(q => q && !q.notes && q.recipientAmount > 0)
+      .filter(q => q && !q.notes?.startsWith("ERROR:") && q.recipientAmount > 0)
 
     if (!competitors.length) return null
 
@@ -153,11 +163,16 @@ function MoinSuggestion({ matrix, currency }: { matrix: MatrixRow[]; currency: s
 
     const requiredFee = Math.floor(row.sendAmountKrw - compAmt * rate) - 1
     const diff = currentFee - requiredFee
+    // 환율 열위로 0수수료도 안 될 때: 필요한 환율 개선 %
+    const rateImprovePct = requiredFee <= 0
+      ? parseFloat(((rate - row.sendAmountKrw / (compAmt + 1)) / rate * 100).toFixed(2))
+      : 0
 
     return {
       amount: row.sendAmountKrw,
       moinAmt, compAmt, bestSvc, currentFee, requiredFee, diff,
       isWinning: moinAmt >= compAmt,
+      rateImprovePct,
     }
   }).filter(Boolean) as any[]
 
@@ -208,7 +223,7 @@ function MoinSuggestion({ matrix, currency }: { matrix: MatrixRow[]; currency: s
                   {r.isWinning ? (
                     <span className="text-green-600 font-medium text-xs">현재 최고 ✓</span>
                   ) : r.requiredFee <= 0 ? (
-                    <span className="text-red-500 text-xs">환율 개선 필요</span>
+                    <span className="text-red-500 text-xs">환율 {r.rateImprovePct}% 개선 필요</span>
                   ) : (
                     <span className="font-mono tabular-nums font-semibold text-blue-600">
                       {r.requiredFee.toLocaleString("ko-KR")}원

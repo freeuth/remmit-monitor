@@ -6,7 +6,7 @@ export async function GET(req: NextRequest) {
   const sendAmount = Number(req.nextUrl.searchParams.get("send_amount") ?? 1_000_000)
 
   const quotes = await prisma.quote.findMany({
-    where: { toCurrency, sendAmountKrw: sendAmount },
+    where: { toCurrency, sendAmountKrw: sendAmount, recipientAmount: { gt: 0 } },
     orderBy: { collectedAt: "asc" },
   })
 

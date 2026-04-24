@@ -24,10 +24,10 @@ export async function GET(req: NextRequest) {
     .sort(([a], [b]) => Number(a) - Number(b))
     .map(([amt, quoteMap]) => {
       const amounts = Object.values(quoteMap) as any[]
-      const best = amounts.reduce(
-        (top, q) => (!top || q.recipientAmount > top.recipientAmount ? q : top),
-        null
-      )
+      const successful = amounts.filter((q: any) => q.recipientAmount > 0)
+      const best = successful.length
+        ? successful.reduce((top: any, q: any) => q.recipientAmount > top.recipientAmount ? q : top)
+        : null
       return { sendAmountKrw: Number(amt), quotes: quoteMap, bestService: best?.service ?? null }
     })
 
