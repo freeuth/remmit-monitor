@@ -121,16 +121,23 @@ export async function collectWirebarleyBatch(
       capturedRaw = match.raw
     }
 
-    // Fallback 1: parse rate from body text (currency-specific regex)
+    // Fallback 1: parse rate from body text
+    // WireBarley may show "100 JPY = 938.71 KRW" (unit > 1) or "1 USD = 1483 KRW"
     if (!capturedRate) {
       const body: string = await page.evaluate(() => document.body.innerText)
-      const rateMatch = body.match(new RegExp(`1\\s+${currency}\\s*=\\s*([\\d,]+\\.?\\d*)\\s*KRW`, "i"))
+      const rateMatchN = body.match(new RegExp(`(\\d+)\\s+${currency}\\s*=\\s*([\\d,]+\\.?\\d*)\\s*KRW`, "i"))
+      const rateMatch1 = body.match(new RegExp(`1\\s+${currency}\\s*=\\s*([\\d,]+\\.?\\d*)\\s*KRW`, "i"))
       const rateMatch2 = body.match(new RegExp(`([\\d,]+)\\s*KRW\\s*=\\s*([\\d,]+\\.?\\d*)\\s*${currency}`, "i"))
-      const feeMatch = body.match(/수수료\s*[:\s]*([\d,]+)\s*KRW/i)
+      const feeMatch = body.match(/수수료\s*([\d,]+)\s*KRW/i)
 
       let rate = 0
-      if (rateMatch) rate = Number(rateMatch[1].replace(/,/g, ""))
-      else if (rateMatch2) {
+      if (rateMatchN) {
+        const units = Number(rateMatchN[1])
+        const krw = Number(rateMatchN[2].replace(/,/g, ""))
+        if (units > 0) rate = krw / units
+      } else if (rateMatch1) {
+        rate = Number(rateMatch1[1].replace(/,/g, ""))
+      } else if (rateMatch2) {
         const krw = Number(rateMatch2[1].replace(/,/g, ""))
         const foreign = Number(rateMatch2[2].replace(/,/g, ""))
         if (foreign > 0) rate = krw / foreign
@@ -139,17 +146,23 @@ export async function collectWirebarleyBatch(
       if (rate > 0) capturedRate = { rate, fee }
     }
 
-    // Fallback 2: read send/receive amounts directly from calculator DOM buttons
-    // (works when page navigates e.g. JP→/?lang=ko and shows amounts without API call)
+    // Fallback 2: read KRW send / foreign receive from calculator buttons
+    // On /?lang=ko (Japan redirect), buttons show e.g. "1,000,000" and "106,529"
     if (!capturedRate) {
-      const domRate = await page.evaluate((sendAmt: number) => {
-        const btns = Array.from(document.querySelectorAll("button[class*='w-full text-left']"))
-        const vals = btns.map(b => Number(b.textContent?.trim().replace(/,/g, "") ?? "0")).filter(v => v > 0)
-        const send = vals.find(v => Math.abs(v - sendAmt) < sendAmt * 0.01)
-        const receive = vals.find(v => v !== send && v > 0)
-        if (send && receive) return send / receive
+      const domRate = await page.evaluate((sendAmts: number[]) => {
+        const allBtns = Array.from(document.querySelectorAll("button"))
+        const nums = allBtns
+          .map(b => ({ el: b, val: Number(b.textContent?.trim().replace(/,/g, "") ?? "0") }))
+          .filter(x => x.val > 0)
+        // Try each send amount: find a button matching it, then take nearest other numeric button as receive
+        for (const sendAmt of sendAmts) {
+          const sendBtn = nums.find(x => Math.abs(x.val - sendAmt) < sendAmt * 0.02)
+          if (!sendBtn) continue
+          const receiveBtn = nums.find(x => x.val !== sendBtn.val && x.val > 0)
+          if (receiveBtn) return sendBtn.val / receiveBtn.val
+        }
         return null
-      }, sendAmounts[0])
+      }, sendAmounts)
       if (domRate && domRate > 0) capturedRate = { rate: domRate, fee: 0 }
     }
 
